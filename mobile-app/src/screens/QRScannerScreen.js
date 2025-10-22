@@ -1,0 +1,1 @@
+// Pantalla - Escáner QR (principal)

@@ -1,0 +1,1 @@
+# Modelo Categoria - SQLAlchemy

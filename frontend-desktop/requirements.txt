@@ -1,0 +1,21 @@
+# Frontend Desktop - Requirements
+# frontend-desktop/requirements.txt
+
+# Framework UI
+flet>=0.24.0
+
+# Cliente HTTP
+httpx>=0.27.0
+
+# Cámara y procesamiento de imágenes
+opencv-python>=4.10.0
+pillow>=10.0.0
+
+# Lectura de códigos QR
+pyzbar>=0.1.9
+
+# Variables de entorno
+python-dotenv>=1.0.0
+
+# Utilidades
+python-dateutil>=2.9.0

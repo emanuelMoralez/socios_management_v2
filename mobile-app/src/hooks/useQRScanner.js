@@ -1,0 +1,1 @@
+// Hook - Escáner QR

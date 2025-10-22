@@ -1,0 +1,1 @@
+# Componente - Visualizador QR

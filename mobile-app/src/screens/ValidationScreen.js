@@ -1,0 +1,1 @@
+// Pantalla - Resultado validación

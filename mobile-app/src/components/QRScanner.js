@@ -1,0 +1,1 @@
+// Componente - Escáner QR

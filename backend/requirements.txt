@@ -1,0 +1,33 @@
+# FastAPI y servidor
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Base de datos - SOLO SQLite (sin psycopg2)
+sqlalchemy
+alembic
+
+# Validación
+pydantic
+pydantic-settings
+python-dotenv
+
+# Seguridad
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+
+# Redis (opcional, puedes comentarlo)
+# redis
+
+# Utilidades
+qrcode
+Pillow
+reportlab
+python-dateutil
+email-validator
+
+# Testing
+pytest
+pytest-asyncio
+httpx
