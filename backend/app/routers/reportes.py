@@ -496,3 +496,182 @@ async def obtener_reporte_dashboard(
         },
         "fecha": hoy.isoformat()
     }
+
+    """
+Endpoints de Exportación - Agregar a reportes.py
+backend/app/routers/reportes.py (AGREGAR AL FINAL)
+"""
+
+from fastapi.responses import StreamingResponse
+
+# Agregar estos imports al inicio del archivo
+from app.services.export_service import ExportService
+
+# Agregar estos endpoints al final del archivo reportes.py:
+
+@router.get("/exportar/socios/excel")
+async def exportar_socios_excel(
+    estado: Optional[str] = Query(None),
+    categoria_id: Optional[int] = Query(None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exportar lista de socios a Excel
+    """
+    try:
+        # Obtener socios con filtros
+        query = db.query(Miembro).filter(Miembro.is_deleted == False)
+        
+        if estado:
+            query = query.filter(Miembro.estado == estado)
+        if categoria_id:
+            query = query.filter(Miembro.categoria_id == categoria_id)
+        
+        socios = query.all()
+        
+        # Convertir a diccionarios
+        socios_data = []
+        for socio in socios:
+            socios_data.append({
+                "numero_miembro": socio.numero_miembro,
+                "numero_documento": socio.numero_documento,
+                "nombre_completo": socio.nombre_completo,
+                "email": socio.email,
+                "telefono": socio.telefono or socio.celular,
+                "estado": socio.estado.value,
+                "categoria": {"nombre": socio.categoria.nombre} if socio.categoria else None,
+                "saldo_cuenta": socio.saldo_cuenta,
+                "fecha_alta": socio.fecha_alta
+            })
+        
+        # Generar Excel
+        excel_file = ExportService.exportar_socios_excel(socios_data)
+        
+        # Retornar como descarga
+        filename = f"socios_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exportando socios: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar: {str(e)}"
+        )
+
+
+@router.get("/exportar/pagos/excel")
+async def exportar_pagos_excel(
+    fecha_desde: Optional[str] = Query(None),
+    fecha_hasta: Optional[str] = Query(None),
+    miembro_id: Optional[int] = Query(None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exportar lista de pagos a Excel
+    """
+    try:
+        query = db.query(Pago)
+        
+        if fecha_desde:
+            fecha_desde_obj = datetime.fromisoformat(fecha_desde).date()
+            query = query.filter(Pago.fecha_pago >= fecha_desde_obj)
+        
+        if fecha_hasta:
+            fecha_hasta_obj = datetime.fromisoformat(fecha_hasta).date()
+            query = query.filter(Pago.fecha_pago <= fecha_hasta_obj)
+        
+        if miembro_id:
+            query = query.filter(Pago.miembro_id == miembro_id)
+        
+        pagos = query.order_by(Pago.fecha_pago.desc()).all()
+        
+        # Convertir a diccionarios
+        pagos_data = []
+        for pago in pagos:
+            miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
+            pagos_data.append({
+                "numero_comprobante": pago.numero_comprobante,
+                "fecha_pago": pago.fecha_pago,
+                "nombre_miembro": miembro.nombre_completo if miembro else "",
+                "miembro": {"numero_miembro": miembro.numero_miembro} if miembro else None,
+                "concepto": pago.concepto,
+                "monto": pago.monto,
+                "descuento": pago.descuento,
+                "recargo": pago.recargo,
+                "monto_final": pago.monto_final,
+                "metodo_pago": pago.metodo_pago.value,
+                "estado": pago.estado.value
+            })
+        
+        # Generar Excel
+        excel_file = ExportService.exportar_pagos_excel(pagos_data)
+        
+        filename = f"pagos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exportando pagos: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar: {str(e)}"
+        )
+
+
+@router.get("/exportar/morosidad/excel")
+async def exportar_morosidad_excel(
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exportar reporte de morosidad a Excel
+    """
+    try:
+        # Obtener morosos
+        morosos = db.query(Miembro).filter(
+            Miembro.is_deleted == False,
+            Miembro.saldo_cuenta < 0
+        ).order_by(Miembro.saldo_cuenta.asc()).all()
+        
+        # Convertir a diccionarios
+        morosos_data = []
+        for miembro in morosos:
+            morosos_data.append({
+                "numero_miembro": miembro.numero_miembro,
+                "nombre_completo": miembro.nombre_completo,
+                "email": miembro.email,
+                "telefono": miembro.telefono or miembro.celular,
+                "deuda": abs(miembro.saldo_cuenta),
+                "dias_mora": miembro.dias_mora,
+                "ultima_cuota_pagada": miembro.ultima_cuota_pagada,
+                "categoria": miembro.categoria.nombre if miembro.categoria else ""
+            })
+        
+        # Generar Excel
+        excel_file = ExportService.exportar_morosidad_excel(morosos_data)
+        
+        filename = f"morosidad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exportando morosidad: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar: {str(e)}"
+        )
