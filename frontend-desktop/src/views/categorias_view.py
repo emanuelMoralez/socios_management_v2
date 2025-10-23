@@ -342,7 +342,7 @@ class CategoriasView(ft.Column):
                                 "Las variables pueden cambiar según consumo u otros factores.",
                                 size=11,
                                 color=ft.Colors.GREY_700,
-                                italic=True
+                                #italic=True
                             ),
                             bgcolor=ft.Colors.GREY_100,
                             padding=8,

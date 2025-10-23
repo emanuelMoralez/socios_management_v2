@@ -361,7 +361,7 @@ class SociosView(ft.Column):
                                     size=11,
                                     color=ft.Colors.GREY_600,
                                     text_align=ft.TextAlign.CENTER,
-                                    italic=True
+                                    #italic=True
                                 )
                             ],
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,

@@ -1,5 +1,5 @@
 """
-Vista de Gestión de Usuarios del Sistema
+Vista de Gestión de Usuarios del Sistema - CORREGIDA
 frontend-desktop/src/views/usuarios_view.py
 """
 import flet as ft
@@ -291,22 +291,19 @@ class UsuariosView(ft.Column):
             
             try:
                 data = {
-                    "username": username_field.value,
-                    "email": email_field.value,
+                    "username": username_field.value.strip(),
+                    "email": email_field.value.strip(),
                     "password": password_field.value,
                     "confirm_password": confirm_password_field.value,
-                    "nombre": nombre_field.value,
-                    "apellido": apellido_field.value,
-                    "telefono": telefono_field.value or None,
+                    "nombre": nombre_field.value.strip(),
+                    "apellido": apellido_field.value.strip(),
+                    "telefono": telefono_field.value.strip() if telefono_field.value else "",
                     "rol": rol_dropdown.value
                 }
                 
-                # Llamar al API
-                from src.services.api_client import api_client
-                response = await api_client.login(username_field.value, password_field.value)
+                print(f"[DEBUG] Creando usuario: {data['username']}")
                 
-                # Crear usuario vía endpoint de registro
-                # Nota: Necesitarás ajustar según tu API
+                # Usar el endpoint de registro directamente
                 import httpx
                 async with httpx.AsyncClient(timeout=30) as client:
                     response = await client.post(
@@ -314,13 +311,24 @@ class UsuariosView(ft.Column):
                         headers=api_client._get_headers(),
                         json=data
                     )
-                    response.raise_for_status()
-                
-                dialogo.open = False
-                self.page.update()
-                
-                self.show_snackbar("✓ Usuario creado exitosamente")
-                await self.load_usuarios()
+                    
+                    # Manejar respuesta
+                    if response.status_code == 201:
+                        # Éxito
+                        dialogo.open = False
+                        self.page.update()
+                        
+                        self.show_snackbar("✓ Usuario creado exitosamente")
+                        await self.load_usuarios()
+                    else:
+                        # Error
+                        try:
+                            error_detail = response.json().get("detail", "Error desconocido")
+                        except:
+                            error_detail = f"Error HTTP {response.status_code}"
+                        
+                        print(f"[DEBUG] Error del servidor: {error_detail}")
+                        self.show_snackbar(f"Error: {error_detail}", error=True)
                 
             except Exception as ex:
                 import traceback
@@ -386,6 +394,14 @@ class UsuariosView(ft.Column):
     def show_edit_usuario_dialog(self, usuario: dict):
         """Mostrar diálogo para editar usuario"""
         
+        # Extraer nombre y apellido del nombre_completo
+        nombre_completo = usuario.get("nombre_completo", "")
+        if ", " in nombre_completo:
+            apellido, nombre = nombre_completo.split(", ", 1)
+        else:
+            nombre = nombre_completo
+            apellido = ""
+        
         email_field = ft.TextField(
             label="Email",
             value=usuario.get("email", ""),
@@ -394,12 +410,12 @@ class UsuariosView(ft.Column):
         
         nombre_field = ft.TextField(
             label="Nombre",
-            value=usuario.get("nombre_completo", "").split(", ")[1] if ", " in usuario.get("nombre_completo", "") else ""
+            value=nombre
         )
         
         apellido_field = ft.TextField(
             label="Apellido",
-            value=usuario.get("nombre_completo", "").split(", ")[0] if ", " in usuario.get("nombre_completo", "") else ""
+            value=apellido
         )
         
         telefono_field = ft.TextField(
@@ -416,7 +432,6 @@ class UsuariosView(ft.Column):
                     "telefono": telefono_field.value or None
                 }
                 
-                # Llamar al API (ajusta según tu endpoint)
                 import httpx
                 async with httpx.AsyncClient(timeout=30) as client:
                     response = await client.put(
