@@ -1,1 +1,658 @@
-# Vista - Usuarios del sistema
+"""
+Vista de Gestión de Usuarios del Sistema
+frontend-desktop/src/views/usuarios_view.py
+"""
+import flet as ft
+from src.services.api_client import api_client
+
+
+class UsuariosView(ft.Column):
+    """Vista de administración de usuarios del sistema"""
+    
+    def __init__(self, page: ft.Page):
+        super().__init__()
+        self.page = page
+        self.usuarios = []
+        
+        # Tabla de usuarios
+        self.data_table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Username")),
+                ft.DataColumn(ft.Text("Nombre Completo")),
+                ft.DataColumn(ft.Text("Email")),
+                ft.DataColumn(ft.Text("Rol")),
+                ft.DataColumn(ft.Text("Estado")),
+                ft.DataColumn(ft.Text("Último Login")),
+                ft.DataColumn(ft.Text("Acciones")),
+            ],
+            rows=[],
+        )
+        
+        self.loading = ft.ProgressRing(visible=False)
+        
+        # Construir UI
+        self.build_ui()
+    
+    def build_ui(self):
+        """Construir interfaz"""
+        self.controls = [
+            # Título y botón nuevo
+            ft.Row(
+                [
+                    ft.Text(
+                        "👥 Gestión de Usuarios",
+                        size=24,
+                        weight=ft.FontWeight.BOLD
+                    ),
+                    ft.ElevatedButton(
+                        "Nuevo Usuario",
+                        icon=ft.Icons.PERSON_ADD,
+                        on_click=lambda _: self.show_nuevo_usuario_dialog()
+                    )
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+            ),
+            
+            ft.Divider(),
+            
+            # Info
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.INFO_OUTLINE, color=ft.Colors.BLUE),
+                        ft.Text(
+                            "Los usuarios son los operadores del sistema (administradores, porteros, etc.)",
+                            size=12,
+                            color=ft.Colors.GREY_700,
+                            expand=True
+                        )
+                    ],
+                    spacing=10
+                ),
+                bgcolor=ft.Colors.BLUE_50,
+                padding=10,
+                border_radius=5
+            ),
+            
+            ft.Divider(),
+            
+            # Botón actualizar
+            ft.Row(
+                [
+                    ft.IconButton(
+                        icon=ft.Icons.REFRESH,
+                        tooltip="Actualizar",
+                        on_click=lambda _: self.page.run_task(self.load_usuarios)
+                    )
+                ],
+                alignment=ft.MainAxisAlignment.END
+            ),
+            
+            # Loading
+            self.loading,
+            
+            # Tabla
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Container(
+                            content=self.data_table,
+                            border=ft.border.all(1, ft.Colors.GREY_300),
+                            border_radius=5,
+                            padding=10
+                        )
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    expand=True
+                ),
+                expand=True
+            )
+        ]
+        
+        self.spacing = 10
+        self.expand = True
+    
+    def did_mount(self):
+        """Llamado cuando el control se monta"""
+        if self.page:
+            self.page.run_task(self.load_usuarios)
+    
+    async def load_usuarios(self):
+        """Cargar lista de usuarios"""
+        self.loading.visible = True
+        if self.page:
+            self.page.update()
+        
+        try:
+            usuarios = await api_client.get_usuarios()
+            self.update_table(usuarios)
+            
+        except Exception as e:
+            self.show_snackbar(f"Error: {e}", error=True)
+        
+        finally:
+            self.loading.visible = False
+            if self.page:
+                self.page.update()
+    
+    def update_table(self, usuarios: list):
+        """Actualizar tabla con datos"""
+        self.data_table.rows.clear()
+        
+        for usuario in usuarios:
+            # Color según rol
+            rol = usuario.get("rol", "")
+            if rol == "super_admin":
+                rol_color = ft.Colors.PURPLE
+            elif rol == "administrador":
+                rol_color = ft.Colors.BLUE
+            elif rol == "operador":
+                rol_color = ft.Colors.GREEN
+            elif rol == "portero":
+                rol_color = ft.Colors.ORANGE
+            else:
+                rol_color = ft.Colors.GREY
+            
+            # Estado
+            is_active = usuario.get("is_active", False)
+            estado_icon = ft.Icons.CHECK_CIRCLE if is_active else ft.Icons.CANCEL
+            estado_color = ft.Colors.GREEN if is_active else ft.Colors.RED
+            
+            # Último login
+            last_login = usuario.get("last_login")
+            if last_login:
+                last_login_text = last_login[:16]  # YYYY-MM-DD HH:MM
+            else:
+                last_login_text = "Nunca"
+            
+            self.data_table.rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(usuario.get("username", ""))),
+                        ft.DataCell(ft.Text(usuario.get("nombre_completo", ""))),
+                        ft.DataCell(ft.Text(usuario.get("email", ""))),
+                        ft.DataCell(
+                            ft.Container(
+                                content=ft.Text(
+                                    rol.replace("_", " ").upper(),
+                                    size=11,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=ft.Colors.WHITE
+                                ),
+                                bgcolor=rol_color,
+                                padding=5,
+                                border_radius=5
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.Icon(
+                                estado_icon,
+                                color=estado_color,
+                                size=20
+                            )
+                        ),
+                        ft.DataCell(ft.Text(last_login_text, size=12)),
+                        ft.DataCell(
+                            ft.Row(
+                                [
+                                    ft.IconButton(
+                                        icon=ft.Icons.EDIT,
+                                        tooltip="Editar",
+                                        on_click=lambda e, u=usuario: self.show_edit_usuario_dialog(u)
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.ADMIN_PANEL_SETTINGS,
+                                        tooltip="Cambiar rol",
+                                        on_click=lambda e, u=usuario: self.show_cambiar_rol_dialog(u)
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.POWER_SETTINGS_NEW if is_active else ft.Icons.CHECK_CIRCLE_OUTLINE,
+                                        tooltip="Desactivar" if is_active else "Activar",
+                                        icon_color=ft.Colors.RED if is_active else ft.Colors.GREEN,
+                                        on_click=lambda e, u=usuario: self.page.run_task(
+                                            self.toggle_usuario_active,
+                                            u
+                                        )
+                                    ),
+                                ],
+                                spacing=0
+                            )
+                        ),
+                    ]
+                )
+            )
+        
+        if self.page:
+            self.page.update()
+    
+    def show_nuevo_usuario_dialog(self):
+        """Mostrar diálogo para crear usuario"""
+        
+        # Campos
+        username_field = ft.TextField(
+            label="Username *",
+            hint_text="Sin espacios ni caracteres especiales",
+            autofocus=True
+        )
+        
+        email_field = ft.TextField(
+            label="Email *",
+            keyboard_type=ft.KeyboardType.EMAIL
+        )
+        
+        password_field = ft.TextField(
+            label="Contraseña *",
+            password=True,
+            can_reveal_password=True,
+            hint_text="Mínimo 8 caracteres"
+        )
+        
+        confirm_password_field = ft.TextField(
+            label="Confirmar Contraseña *",
+            password=True,
+            can_reveal_password=True
+        )
+        
+        nombre_field = ft.TextField(label="Nombre *")
+        apellido_field = ft.TextField(label="Apellido *")
+        telefono_field = ft.TextField(label="Teléfono", keyboard_type=ft.KeyboardType.PHONE)
+        
+        rol_dropdown = ft.Dropdown(
+            label="Rol *",
+            value="operador",
+            options=[
+                ft.dropdown.Option("super_admin", "Super Admin"),
+                ft.dropdown.Option("administrador", "Administrador"),
+                ft.dropdown.Option("operador", "Operador"),
+                ft.dropdown.Option("portero", "Portero"),
+                ft.dropdown.Option("consulta", "Solo Consulta"),
+            ]
+        )
+        
+        async def guardar_usuario(e):
+            # Validaciones
+            if not all([
+                username_field.value,
+                email_field.value,
+                password_field.value,
+                nombre_field.value,
+                apellido_field.value
+            ]):
+                self.show_snackbar("Completa los campos obligatorios (*)", error=True)
+                return
+            
+            if password_field.value != confirm_password_field.value:
+                self.show_snackbar("Las contraseñas no coinciden", error=True)
+                return
+            
+            if len(password_field.value) < 8:
+                self.show_snackbar("La contraseña debe tener al menos 8 caracteres", error=True)
+                return
+            
+            try:
+                data = {
+                    "username": username_field.value,
+                    "email": email_field.value,
+                    "password": password_field.value,
+                    "confirm_password": confirm_password_field.value,
+                    "nombre": nombre_field.value,
+                    "apellido": apellido_field.value,
+                    "telefono": telefono_field.value or None,
+                    "rol": rol_dropdown.value
+                }
+                
+                # Llamar al API
+                from src.services.api_client import api_client
+                response = await api_client.login(username_field.value, password_field.value)
+                
+                # Crear usuario vía endpoint de registro
+                # Nota: Necesitarás ajustar según tu API
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.post(
+                        f"{api_client.base_url}/auth/register",
+                        headers=api_client._get_headers(),
+                        json=data
+                    )
+                    response.raise_for_status()
+                
+                dialogo.open = False
+                self.page.update()
+                
+                self.show_snackbar("✓ Usuario creado exitosamente")
+                await self.load_usuarios()
+                
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                self.show_snackbar(f"Error: {ex}", error=True)
+        
+        def cerrar_dialogo(e):
+            dialogo.open = False
+            self.page.update()
+        
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Nuevo Usuario del Sistema"),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Credenciales", weight=ft.FontWeight.BOLD),
+                        username_field,
+                        email_field,
+                        password_field,
+                        confirm_password_field,
+                        ft.Divider(),
+                        ft.Text("Información Personal", weight=ft.FontWeight.BOLD),
+                        ft.Row([nombre_field, apellido_field], spacing=10),
+                        telefono_field,
+                        ft.Divider(),
+                        ft.Text("Permisos", weight=ft.FontWeight.BOLD),
+                        rol_dropdown,
+                        ft.Container(
+                            content=ft.Text(
+                                "⚠️ Super Admin tiene acceso total al sistema",
+                                size=11,
+                                color=ft.Colors.ORANGE_700,
+                                italic=True
+                            ),
+                            bgcolor=ft.Colors.ORANGE_50,
+                            padding=8,
+                            border_radius=5
+                        )
+                    ],
+                    spacing=10,
+                    scroll=ft.ScrollMode.AUTO,
+                    height=500
+                ),
+                width=450,
+                padding=20
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cerrar_dialogo),
+                ft.ElevatedButton(
+                    "Crear Usuario",
+                    icon=ft.Icons.CHECK,
+                    on_click=lambda e: self.page.run_task(guardar_usuario, e)
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+        
+        self.page.overlay.append(dialogo)
+        dialogo.open = True
+        self.page.update()
+    
+    def show_edit_usuario_dialog(self, usuario: dict):
+        """Mostrar diálogo para editar usuario"""
+        
+        email_field = ft.TextField(
+            label="Email",
+            value=usuario.get("email", ""),
+            keyboard_type=ft.KeyboardType.EMAIL
+        )
+        
+        nombre_field = ft.TextField(
+            label="Nombre",
+            value=usuario.get("nombre_completo", "").split(", ")[1] if ", " in usuario.get("nombre_completo", "") else ""
+        )
+        
+        apellido_field = ft.TextField(
+            label="Apellido",
+            value=usuario.get("nombre_completo", "").split(", ")[0] if ", " in usuario.get("nombre_completo", "") else ""
+        )
+        
+        telefono_field = ft.TextField(
+            label="Teléfono",
+            value=usuario.get("telefono", "") or ""
+        )
+        
+        async def guardar_cambios(e):
+            try:
+                data = {
+                    "email": email_field.value,
+                    "nombre": nombre_field.value,
+                    "apellido": apellido_field.value,
+                    "telefono": telefono_field.value or None
+                }
+                
+                # Llamar al API (ajusta según tu endpoint)
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.put(
+                        f"{api_client.base_url}/usuarios/{usuario['id']}",
+                        headers=api_client._get_headers(),
+                        json=data
+                    )
+                    response.raise_for_status()
+                
+                dialogo.open = False
+                self.page.update()
+                
+                self.show_snackbar("✓ Usuario actualizado")
+                await self.load_usuarios()
+                
+            except Exception as ex:
+                self.show_snackbar(f"Error: {ex}", error=True)
+        
+        def cerrar_dialogo(e):
+            dialogo.open = False
+            self.page.update()
+        
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Editar Usuario - {usuario.get('username', '')}"),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            f"ID: {usuario.get('id')} | Rol: {usuario.get('rol', '').replace('_', ' ').upper()}",
+                            size=12,
+                            color=ft.Colors.GREY_600
+                        ),
+                        ft.Divider(),
+                        email_field,
+                        ft.Row([nombre_field, apellido_field], spacing=10),
+                        telefono_field,
+                    ],
+                    spacing=10
+                ),
+                width=400,
+                padding=20
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cerrar_dialogo),
+                ft.ElevatedButton(
+                    "Guardar",
+                    icon=ft.Icons.SAVE,
+                    on_click=lambda e: self.page.run_task(guardar_cambios, e)
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+        
+        self.page.overlay.append(dialogo)
+        dialogo.open = True
+        self.page.update()
+    
+    def show_cambiar_rol_dialog(self, usuario: dict):
+        """Mostrar diálogo para cambiar rol"""
+        
+        rol_dropdown = ft.Dropdown(
+            label="Nuevo Rol",
+            value=usuario.get("rol", ""),
+            options=[
+                ft.dropdown.Option("super_admin", "Super Admin"),
+                ft.dropdown.Option("administrador", "Administrador"),
+                ft.dropdown.Option("operador", "Operador"),
+                ft.dropdown.Option("portero", "Portero"),
+                ft.dropdown.Option("consulta", "Solo Consulta"),
+            ]
+        )
+        
+        async def cambiar_rol(e):
+            try:
+                data = {
+                    "usuario_id": usuario["id"],
+                    "nuevo_rol": rol_dropdown.value
+                }
+                
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.post(
+                        f"{api_client.base_url}/usuarios/cambiar-rol",
+                        headers=api_client._get_headers(),
+                        json=data
+                    )
+                    response.raise_for_status()
+                
+                dialogo.open = False
+                self.page.update()
+                
+                self.show_snackbar("✓ Rol actualizado")
+                await self.load_usuarios()
+                
+            except Exception as ex:
+                self.show_snackbar(f"Error: {ex}", error=True)
+        
+        def cerrar_dialogo(e):
+            dialogo.open = False
+            self.page.update()
+        
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS, color=ft.Colors.BLUE),
+                    ft.Text("Cambiar Rol de Usuario")
+                ],
+                spacing=10
+            ),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            f"Usuario: {usuario.get('nombre_completo', '')}",
+                            weight=ft.FontWeight.BOLD
+                        ),
+                        ft.Text(
+                            f"Rol actual: {usuario.get('rol', '').replace('_', ' ').upper()}",
+                            color=ft.Colors.GREY_700
+                        ),
+                        ft.Divider(),
+                        rol_dropdown,
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    ft.Text("Permisos por rol:", weight=ft.FontWeight.BOLD, size=12),
+                                    ft.Text("• Super Admin: Acceso total", size=11),
+                                    ft.Text("• Administrador: Gestión completa", size=11),
+                                    ft.Text("• Operador: Registro de datos", size=11),
+                                    ft.Text("• Portero: Solo control de acceso", size=11),
+                                    ft.Text("• Consulta: Solo lectura", size=11),
+                                ],
+                                spacing=3
+                            ),
+                            bgcolor=ft.Colors.BLUE_50,
+                            padding=10,
+                            border_radius=5
+                        )
+                    ],
+                    spacing=10
+                ),
+                width=400,
+                padding=20
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cerrar_dialogo),
+                ft.ElevatedButton(
+                    "Cambiar Rol",
+                    icon=ft.Icons.CHECK,
+                    on_click=lambda e: self.page.run_task(cambiar_rol, e)
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+        
+        self.page.overlay.append(dialogo)
+        dialogo.open = True
+        self.page.update()
+    
+    async def toggle_usuario_active(self, usuario: dict):
+        """Activar/desactivar usuario"""
+        try:
+            is_active = usuario.get("is_active", False)
+            accion = "desactivar" if is_active else "activar"
+            
+            # Confirmar
+            confirmar = await self.show_confirm_dialog(
+                f"¿Estás seguro de {accion} el usuario {usuario.get('username', '')}?",
+                f"El usuario {'no podrá' if is_active else 'podrá'} iniciar sesión."
+            )
+            
+            if not confirmar:
+                return
+            
+            data = {
+                "usuario_id": usuario["id"],
+                "activar": not is_active
+            }
+            
+            import httpx
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    f"{api_client.base_url}/usuarios/toggle-active",
+                    headers=api_client._get_headers(),
+                    json=data
+                )
+                response.raise_for_status()
+            
+            self.show_snackbar(f"✓ Usuario {accion}do")
+            await self.load_usuarios()
+            
+        except Exception as e:
+            self.show_snackbar(f"Error: {e}", error=True)
+    
+    async def show_confirm_dialog(self, title: str, message: str) -> bool:
+        """Mostrar diálogo de confirmación y esperar respuesta"""
+        resultado = {"confirmed": False}
+        
+        def confirmar(e):
+            resultado["confirmed"] = True
+            dialogo.open = False
+            self.page.update()
+        
+        def cancelar(e):
+            resultado["confirmed"] = False
+            dialogo.open = False
+            self.page.update()
+        
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(title),
+            content=ft.Text(message),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cancelar),
+                ft.ElevatedButton("Confirmar", on_click=confirmar),
+            ],
+        )
+        
+        self.page.overlay.append(dialogo)
+        dialogo.open = True
+        self.page.update()
+        
+        # Esperar a que se cierre el diálogo
+        import asyncio
+        while dialogo.open:
+            await asyncio.sleep(0.1)
+        
+        return resultado["confirmed"]
+    
+    def show_snackbar(self, message: str, error: bool = False):
+        """Mostrar mensaje snackbar"""
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text(message),
+            bgcolor=ft.Colors.RED if error else ft.Colors.GREEN
+        )
+        self.page.snack_bar.open = True
+        self.page.update()

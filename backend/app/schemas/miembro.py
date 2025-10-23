@@ -14,16 +14,21 @@ from app.schemas.common import TimestampMixin
 class CategoriaBase(BaseModel):
     """Schema base de Categoría"""
     nombre: str = Field(..., min_length=2, max_length=100)
-    descripcion: Optional[str] = None
+    descripcion: Optional[str] = ""
     cuota_base: float = Field(default=0.0, ge=0)
     tiene_cuota_fija: bool = True
-    caracteristicas: Optional[str] = None
+    caracteristicas: Optional[str] = ""
     modulo_tipo: str = "generico"
 
 
 class CategoriaCreate(CategoriaBase):
     """Schema para crear categoría"""
-    pass
+    @validator('descripcion', 'caracteristicas', pre=True)
+    def empty_str_to_none(cls, v):
+        """Convertir strings vacíos a None"""
+        if v == "":
+            return None
+        return v
 
 
 class CategoriaUpdate(BaseModel):
