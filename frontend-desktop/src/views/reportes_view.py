@@ -150,7 +150,9 @@ class ReportesView(ft.Column):
                             ft.ElevatedButton(
                                 "Exportar a Excel",
                                 icon=ft.Icons.FILE_DOWNLOAD,
-                                on_click=lambda _: self.show_snackbar("Exportar próximamente")
+                                on_click=lambda _: self.page.run_task(self.exportar_socios_excel),
+                                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700)
+                                
                             ),
                             ft.ElevatedButton(
                                 "Imprimir",
