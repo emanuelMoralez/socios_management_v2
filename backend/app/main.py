@@ -15,7 +15,7 @@ from app.database import engine, Base, check_db_connection
 from app.config import settings
 
 # Importar todos los routers
-from app.routers import auth, miembros, accesos, pagos, usuarios, reportes
+from app.routers import auth, miembros, accesos, pagos, usuarios, reportes, notificaciones
 
 # Configurar logging
 logging.basicConfig(
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info(" Cerrando Sistema de Gestión de Socios...")
+    logger.info("Cerrando Sistema de Gestión de Socios...")
 
 
 # ==================== APP ====================
@@ -199,13 +199,13 @@ app.include_router(
 app.include_router(
     miembros.router,
     prefix="/api/miembros",
-    tags=[" Miembros"]
+    tags=["[MEMBERS] Miembros"]
 )
 
 app.include_router(
     accesos.router,
     prefix="/api/accesos",
-    tags=[" Control de Acceso"]
+    tags=["[ACCESS] Control de Acceso"]
 )
 
 app.include_router(
@@ -224,6 +224,12 @@ app.include_router(
     reportes.router,
     prefix="/api/reportes",
     tags=["[REPORT] Reportes"]
+)
+
+app.include_router(
+    notificaciones.router,
+    prefix="/api/notificaciones",
+    tags=["[EMAIL] Notificaciones"]
 )
 
 

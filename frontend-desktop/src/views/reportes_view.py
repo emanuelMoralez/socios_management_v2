@@ -521,3 +521,385 @@ class ReportesView(ft.Column):
         )
         self.page.snack_bar.open = True
         self.page.update()
+
+        """
+Métodos de exportación y notificaciones para reportes_view.py
+Añadir estos métodos a la clase ReportesView
+frontend-desktop/src/views/reportes_view.py
+"""
+
+async def exportar_socios_excel(self):
+    """Exportar socios a Excel"""
+    try:
+        # Mostrar loading
+        loading_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.ProgressRing(width=30, height=30),
+                    ft.Text("Exportando a Excel...")
+                ],
+                spacing=10
+            ),
+            content=ft.Text("Por favor espera mientras se genera el archivo...")
+        )
+        
+        self.page.overlay.append(loading_dialog)
+        loading_dialog.open = True
+        self.page.update()
+        
+        # Obtener archivo Excel del backend
+        excel_bytes = await api_client.exportar_socios_excel()
+        
+        # Cerrar loading
+        loading_dialog.open = False
+        self.page.update()
+        
+        # Guardar archivo
+        from datetime import datetime
+        filename = f"socios_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        # Usar file picker para guardar
+        save_file_picker = ft.FilePicker(
+            on_result=lambda e: self.on_export_save(e, excel_bytes)
+        )
+        self.page.overlay.append(save_file_picker)
+        self.page.update()
+        
+        save_file_picker.save_file(
+            file_name=filename,
+            allowed_extensions=["xlsx"],
+            dialog_title="Guardar reporte de socios"
+        )
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        self.show_snackbar(f"Error al exportar: {e}", error=True)
+
+
+async def exportar_pagos_excel(self, fecha_desde=None, fecha_hasta=None):
+    """Exportar pagos a Excel"""
+    try:
+        loading_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.ProgressRing(width=30, height=30),
+                    ft.Text("Exportando pagos...")
+                ],
+                spacing=10
+            ),
+            content=ft.Text("Generando archivo Excel...")
+        )
+        
+        self.page.overlay.append(loading_dialog)
+        loading_dialog.open = True
+        self.page.update()
+        
+        # Obtener archivo
+        excel_bytes = await api_client.exportar_pagos_excel(
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta
+        )
+        
+        loading_dialog.open = False
+        self.page.update()
+        
+        # Guardar
+        from datetime import datetime
+        filename = f"pagos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        save_file_picker = ft.FilePicker(
+            on_result=lambda e: self.on_export_save(e, excel_bytes)
+        )
+        self.page.overlay.append(save_file_picker)
+        self.page.update()
+        
+        save_file_picker.save_file(
+            file_name=filename,
+            allowed_extensions=["xlsx"],
+            dialog_title="Guardar reporte de pagos"
+        )
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        self.show_snackbar(f"Error al exportar: {e}", error=True)
+
+
+async def exportar_morosidad_excel(self):
+    """Exportar reporte de morosidad a Excel"""
+    try:
+        loading_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.ProgressRing(width=30, height=30),
+                    ft.Text("Exportando morosidad...")
+                ],
+                spacing=10
+            ),
+            content=ft.Text("Generando archivo Excel...")
+        )
+        
+        self.page.overlay.append(loading_dialog)
+        loading_dialog.open = True
+        self.page.update()
+        
+        excel_bytes = await api_client.exportar_morosidad_excel()
+        
+        loading_dialog.open = False
+        self.page.update()
+        
+        from datetime import datetime
+        filename = f"morosidad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        save_file_picker = ft.FilePicker(
+            on_result=lambda e: self.on_export_save(e, excel_bytes)
+        )
+        self.page.overlay.append(save_file_picker)
+        self.page.update()
+        
+        save_file_picker.save_file(
+            file_name=filename,
+            allowed_extensions=["xlsx"],
+            dialog_title="Guardar reporte de morosidad"
+        )
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        self.show_snackbar(f"Error al exportar: {e}", error=True)
+
+
+def on_export_save(self, e: ft.FilePickerResultEvent, excel_bytes: bytes):
+    """Callback cuando se guarda el archivo exportado"""
+    if e.path:
+        try:
+            with open(e.path, 'wb') as f:
+                f.write(excel_bytes)
+            
+            self.show_snackbar(f"✓ Archivo guardado: {e.path}")
+            
+        except Exception as ex:
+            self.show_snackbar(f"Error al guardar archivo: {ex}", error=True)
+    else:
+        # Usuario canceló
+        pass
+
+
+async def enviar_recordatorios_masivos(self):
+    """Enviar recordatorios de cuota masivos"""
+    
+    # Campos de configuración
+    solo_morosos = ft.Checkbox(
+        label="Solo socios en estado MOROSO",
+        value=True
+    )
+    
+    dias_mora_field = ft.TextField(
+        label="Días mínimos de mora",
+        value="5",
+        keyboard_type=ft.KeyboardType.NUMBER,
+        width=200,
+        hint_text="Ej: 5"
+    )
+    
+    async def confirmar_envio(e):
+        try:
+            dias_mora = int(dias_mora_field.value or 5)
+            
+            if dias_mora < 0:
+                self.show_snackbar("Los días de mora deben ser positivos", error=True)
+                return
+            
+            # Confirmar acción
+            confirmar_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.WARNING, color=ft.Colors.ORANGE, size=30),
+                        ft.Text("Confirmar Envío Masivo")
+                    ],
+                    spacing=10
+                ),
+                content=ft.Text(
+                    "¿Estás seguro de enviar recordatorios a TODOS los socios que cumplan los criterios?\n\n"
+                    "Esta acción enviará emails automáticos.",
+                    size=14
+                ),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: setattr(confirmar_dialog, 'open', False) or self.page.update()),
+                    ft.ElevatedButton(
+                        "Confirmar y Enviar",
+                        icon=ft.Icons.SEND,
+                        on_click=lambda _: self.page.run_task(procesar_envio, confirmar_dialog),
+                        style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_700)
+                    )
+                ]
+            )
+            
+            self.page.overlay.append(confirmar_dialog)
+            confirmar_dialog.open = True
+            self.page.update()
+            
+        except ValueError:
+            self.show_snackbar("Ingresa un número válido de días", error=True)
+    
+    async def procesar_envio(confirmar_dialog):
+        # Cerrar diálogo de confirmación
+        confirmar_dialog.open = False
+        config_dialog.open = False
+        self.page.update()
+        
+        # Mostrar loading
+        loading_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.ProgressRing(width=30, height=30),
+                    ft.Text("Enviando recordatorios...")
+                ],
+                spacing=10
+            ),
+            content=ft.Text("Por favor espera, esto puede tomar unos momentos...")
+        )
+        
+        self.page.overlay.append(loading_dialog)
+        loading_dialog.open = True
+        self.page.update()
+        
+        try:
+            dias_mora = int(dias_mora_field.value or 5)
+            
+            # Llamar al API
+            resultado = await api_client.enviar_recordatorios_masivos(
+                solo_morosos=solo_morosos.value,
+                dias_mora_minimo=dias_mora
+            )
+            
+            loading_dialog.open = False
+            self.page.update()
+            
+            # Mostrar resultado
+            resultado_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=30),
+                        ft.Text("Resultado del Envío")
+                    ],
+                    spacing=10
+                ),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            f"✓ Recordatorios programados: {resultado.get('enviados', 0)}",
+                            size=14,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.GREEN
+                        ),
+                        ft.Text(
+                            f"✗ Fallidos: {resultado.get('fallidos', 0)}",
+                            size=14,
+                            color=ft.Colors.RED if resultado.get('fallidos', 0) > 0 else ft.Colors.GREY
+                        ),
+                        ft.Divider(),
+                        ft.Text(
+                            "Los emails se están enviando en segundo plano.",
+                            size=12,
+                            color=ft.Colors.GREY_700
+                        )
+                    ],
+                    spacing=10,
+                    tight=True
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Cerrar",
+                        on_click=lambda _: setattr(resultado_dialog, 'open', False) or self.page.update()
+                    )
+                ]
+            )
+            
+            self.page.overlay.append(resultado_dialog)
+            resultado_dialog.open = True
+            self.page.update()
+            
+            self.show_snackbar(f"✓ {resultado.get('enviados', 0)} recordatorios programados")
+            
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+            loading_dialog.open = False
+            self.page.update()
+            self.show_snackbar(f"Error: {ex}", error=True)
+    
+    def cerrar_config(e):
+        config_dialog.open = False
+        self.page.update()
+    
+    # Diálogo de configuración
+    config_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("📧 Enviar Recordatorios Masivos"),
+        content=ft.Container(
+            content=ft.Column(
+                [
+                    ft.Container(
+                        content=ft.Text(
+                            "ℹ️ Esta función enviará recordatorios de cuota por email "
+                            "a todos los socios que cumplan los criterios.",
+                            size=12,
+                            color=ft.Colors.GREY_700
+                        ),
+                        bgcolor=ft.Colors.BLUE_50,
+                        padding=10,
+                        border_radius=5
+                    ),
+                    ft.Divider(),
+                    ft.Text("Configuración", weight=ft.FontWeight.BOLD),
+                    solo_morosos,
+                    dias_mora_field,
+                    ft.Divider(),
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Text(
+                                    "⚠️ Requisitos:",
+                                    size=12,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=ft.Colors.ORANGE_700
+                                ),
+                                ft.Text("• Los socios deben tener email registrado", size=11),
+                                ft.Text("• Los socios deben tener deuda", size=11),
+                                ft.Text("• La configuración SMTP debe estar activa", size=11),
+                            ],
+                            spacing=3
+                        ),
+                        bgcolor=ft.Colors.ORANGE_50,
+                        padding=10,
+                        border_radius=5
+                    )
+                ],
+                spacing=10
+            ),
+            width=450,
+            padding=20
+        ),
+        actions=[
+            ft.TextButton("Cancelar", on_click=cerrar_config),
+            ft.ElevatedButton(
+                "Enviar Recordatorios",
+                icon=ft.Icons.SEND,
+                on_click=lambda e: self.page.run_task(confirmar_envio, e),
+                style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700)
+            )
+        ],
+        actions_alignment=ft.MainAxisAlignment.END
+    )
+    
+    self.page.overlay.append(config_dialog)
+    config_dialog.open = True
+    self.page.update()

@@ -444,3 +444,150 @@ class APIClient:
 
 # Instancia global
 api_client = APIClient()
+
+# ==================== EXPORTACIÓN DE REPORTES ====================
+    
+async def exportar_socios_excel(
+        self,
+        estado: Optional[str] = None,
+        categoria_id: Optional[int] = None
+    ) -> bytes:
+        """
+        Exportar lista de socios a Excel
+        
+        Returns:
+            bytes: Archivo Excel en bytes
+        """
+        params = {}
+        if estado:
+            params["estado"] = estado
+        if categoria_id:
+            params["categoria_id"] = categoria_id
+        
+        async with httpx.AsyncClient(timeout=60) as client:  # Mayor timeout para exports
+            response = await client.get(
+                f"{self.base_url}/reportes/exportar/socios/excel",
+                headers=self._get_headers(),
+                params=params
+            )
+            response.raise_for_status()
+            return response.content
+    
+async def exportar_pagos_excel(
+        self,
+        fecha_desde: Optional[str] = None,
+        fecha_hasta: Optional[str] = None,
+        miembro_id: Optional[int] = None
+    ) -> bytes:
+        """
+        Exportar lista de pagos a Excel
+        
+        Returns:
+            bytes: Archivo Excel en bytes
+        """
+        params = {}
+        if fecha_desde:
+            params["fecha_desde"] = fecha_desde
+        if fecha_hasta:
+            params["fecha_hasta"] = fecha_hasta
+        if miembro_id:
+            params["miembro_id"] = miembro_id
+        
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(
+                f"{self.base_url}/reportes/exportar/pagos/excel",
+                headers=self._get_headers(),
+                params=params
+            )
+            response.raise_for_status()
+            return response.content
+    
+async def exportar_morosidad_excel(self) -> bytes:
+        """
+        Exportar reporte de morosidad a Excel
+        
+        Returns:
+            bytes: Archivo Excel en bytes
+        """
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(
+                f"{self.base_url}/reportes/exportar/morosidad/excel",
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+            return response.content
+    
+# ==================== NOTIFICACIONES ====================
+    
+async def enviar_recordatorio_individual(
+        self,
+        miembro_id: int,
+        email: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Enviar recordatorio de cuota a un socio
+        
+        Args:
+            miembro_id: ID del miembro
+            email: Email destino (opcional, usa el del miembro si no se provee)
+        
+        Returns:
+            Respuesta del servidor
+        """
+        data = {"miembro_id": miembro_id}
+        if email:
+            data["email"] = email
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{self.base_url}/notificaciones/recordatorio",
+                headers=self._get_headers(),
+                json=data
+            )
+            response.raise_for_status()
+            return response.json()
+    
+async def enviar_recordatorios_masivos(
+        self,
+        solo_morosos: bool = True,
+        dias_mora_minimo: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Enviar recordatorios masivos a socios con deuda
+        
+        Args:
+            solo_morosos: Si True, solo envía a socios morosos
+            dias_mora_minimo: Días mínimos de mora para enviar
+        
+        Returns:
+            Estadísticas de envío
+        """
+        data = {
+            "solo_morosos": solo_morosos,
+            "dias_mora_minimo": dias_mora_minimo,
+            "incluir_email": True
+        }
+        
+        async with httpx.AsyncClient(timeout=120) as client:  # Mayor timeout para masivos
+            response = await client.post(
+                f"{self.base_url}/notificaciones/recordatorios-masivos",
+                headers=self._get_headers(),
+                json=data
+            )
+            response.raise_for_status()
+            return response.json()
+    
+async def test_email_config(self) -> Dict[str, Any]:
+        """
+        Probar configuración de email
+        
+        Returns:
+            Resultado del test
+        """
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{self.base_url}/notificaciones/test-email",
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+            return response.json()
