@@ -256,8 +256,7 @@ class ReportesView(ft.Column):
                                     self.exportar_pagos_excel,
                                     fecha_desde.isoformat(),
                                     fecha_hasta.isoformat()
-                                ),
-                                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700)
+                                )
                             ),
                         ]
                     )
@@ -333,14 +332,12 @@ class ReportesView(ft.Column):
                             ft.ElevatedButton(
                                 "Exportar Lista",
                                 icon=ft.Icons.FILE_DOWNLOAD,
-                                on_click=lambda _: self.page.run_task(self.exportar_morosidad_excel),
-                                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700)
+                                on_click=lambda _: self.page.run_task(self.exportar_morosidad_excel)
                             ),
                             ft.ElevatedButton(
                                 "Enviar Recordatorios",
                                 icon=ft.Icons.EMAIL,
-                                on_click=lambda _: self.page.run_task(self.enviar_recordatorios_masivos),
-                                style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_700)
+                                on_click=lambda _: self.page.run_task(self.enviar_recordatorios_masivos)
                             ),
                         ],
                         spacing=10
@@ -528,11 +525,8 @@ class ReportesView(ft.Column):
         )
         self.page.snack_bar.open = True
         self.page.update()
-
-    # ============================================================================
-    # MÉTODOS DE EXPORTACIÓN
-    # ============================================================================
-
+        
+    # ==================== EXPORTACIONES ====================
     async def exportar_socios_excel(self):
         """Exportar socios a Excel"""
         try:
@@ -687,10 +681,7 @@ class ReportesView(ft.Column):
             # Usuario canceló
             pass
 
-    # ============================================================================
-    # MÉTODOS DE NOTIFICACIONES
-    # ============================================================================
-
+    # ==================== NOTIFICACIONES ====================
     async def enviar_recordatorios_masivos(self):
         """Enviar recordatorios de cuota masivos"""
         
@@ -732,7 +723,7 @@ class ReportesView(ft.Column):
                         size=14
                     ),
                     actions=[
-                        ft.TextButton("Cancelar", on_click=lambda _: setattr(confirmar_dialog, 'open', False) or self.page.update()),
+                        ft.TextButton("Cancelar", on_click=lambda _: setattr(confirmar_dialog, 'open', False) | self.page.update()),
                         ft.ElevatedButton(
                             "Confirmar y Enviar",
                             icon=ft.Icons.SEND,
@@ -820,7 +811,7 @@ class ReportesView(ft.Column):
                     actions=[
                         ft.TextButton(
                             "Cerrar",
-                            on_click=lambda _: setattr(resultado_dialog, 'open', False) or self.page.update()
+                            on_click=lambda _: setattr(resultado_dialog, 'open', False) | self.page.update()
                         )
                     ]
                 )

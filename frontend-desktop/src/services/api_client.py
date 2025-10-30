@@ -441,19 +441,19 @@ class APIClient:
             response.raise_for_status()
             return response.json()
 
-
-# Instancia global
-api_client = APIClient()
-
-# ==================== EXPORTACIÓN DE REPORTES ====================
+    # ==================== EXPORTACIÓN DE REPORTES ====================
     
-async def exportar_socios_excel(
+    async def exportar_socios_excel(
         self,
         estado: Optional[str] = None,
         categoria_id: Optional[int] = None
     ) -> bytes:
         """
         Exportar lista de socios a Excel
+        
+        Args:
+            estado: Filtrar por estado (ACTIVO, MOROSO, etc.)
+            categoria_id: Filtrar por categoría
         
         Returns:
             bytes: Archivo Excel en bytes
@@ -473,7 +473,7 @@ async def exportar_socios_excel(
             response.raise_for_status()
             return response.content
     
-async def exportar_pagos_excel(
+    async def exportar_pagos_excel(
         self,
         fecha_desde: Optional[str] = None,
         fecha_hasta: Optional[str] = None,
@@ -481,6 +481,11 @@ async def exportar_pagos_excel(
     ) -> bytes:
         """
         Exportar lista de pagos a Excel
+        
+        Args:
+            fecha_desde: Fecha inicio (ISO format)
+            fecha_hasta: Fecha fin (ISO format)
+            miembro_id: Filtrar por miembro específico
         
         Returns:
             bytes: Archivo Excel en bytes
@@ -502,7 +507,7 @@ async def exportar_pagos_excel(
             response.raise_for_status()
             return response.content
     
-async def exportar_morosidad_excel(self) -> bytes:
+    async def exportar_morosidad_excel(self) -> bytes:
         """
         Exportar reporte de morosidad a Excel
         
@@ -517,9 +522,9 @@ async def exportar_morosidad_excel(self) -> bytes:
             response.raise_for_status()
             return response.content
     
-# ==================== NOTIFICACIONES ====================
+    # ==================== NOTIFICACIONES ====================
     
-async def enviar_recordatorio_individual(
+    async def enviar_recordatorio_individual(
         self,
         miembro_id: int,
         email: Optional[str] = None
@@ -547,7 +552,7 @@ async def enviar_recordatorio_individual(
             response.raise_for_status()
             return response.json()
     
-async def enviar_recordatorios_masivos(
+    async def enviar_recordatorios_masivos(
         self,
         solo_morosos: bool = True,
         dias_mora_minimo: int = 5
@@ -560,7 +565,7 @@ async def enviar_recordatorios_masivos(
             dias_mora_minimo: Días mínimos de mora para enviar
         
         Returns:
-            Estadísticas de envío
+            Estadísticas de envío (enviados, fallidos)
         """
         data = {
             "solo_morosos": solo_morosos,
@@ -577,7 +582,7 @@ async def enviar_recordatorios_masivos(
             response.raise_for_status()
             return response.json()
     
-async def test_email_config(self) -> Dict[str, Any]:
+    async def test_email_config(self) -> Dict[str, Any]:
         """
         Probar configuración de email
         
@@ -591,3 +596,7 @@ async def test_email_config(self) -> Dict[str, Any]:
             )
             response.raise_for_status()
             return response.json()
+
+
+# Instancia global
+api_client = APIClient()
