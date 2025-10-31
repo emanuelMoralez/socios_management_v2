@@ -7,9 +7,9 @@ para que Alembic pueda detectarlos en las migraciones.
 """
 from app.models.base import BaseModel, TimestampMixin, SoftDeleteMixin, AuditMixin
 from app.models.usuario import Usuario, RolUsuario
+from app.models.categoria import Categoria
 from app.models.miembro import (
     Miembro,
-    Categoria,
     EstadoMiembro,
     TipoDocumento
 )

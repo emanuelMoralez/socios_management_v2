@@ -11,6 +11,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.models.miembro import Miembro
+from app.models.categoria import Categoria
 from app.models.pago import Pago
 from app.models.categoria import Categoria
 
@@ -128,7 +129,7 @@ class ExportService:
         buffer = BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        return buffer.getvalue()
+        return buffer
     
     @staticmethod
     def generar_excel_pagos(pagos: List[Pago], db: Session) -> bytes:
@@ -218,7 +219,7 @@ class ExportService:
         buffer = BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        return buffer.getvalue()
+        return buffer
     
     @staticmethod
     def generar_excel_morosidad(morosos: List[dict]) -> bytes:
@@ -324,7 +325,7 @@ class ExportService:
         buffer = BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        return buffer.getvalue()
+        return buffer
     
     @staticmethod
     def generar_excel_accesos(accesos: List[dict]) -> bytes:
@@ -429,4 +430,4 @@ class ExportService:
         buffer = BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        return buffer.getvalue()
+        return buffer
