@@ -3,7 +3,7 @@ Cliente HTTP para comunicación con la API
 frontend-desktop/src/services/api_client.py
 """
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 import os
 from dotenv import load_dotenv
 
@@ -29,10 +29,58 @@ class APIClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
     
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        response_type: str = "json",
+        timeout: Optional[int] = None,
+        **kwargs
+    ) -> Union[Dict[str, Any], list, bytes]:
+        """
+        Método genérico para hacer peticiones HTTP
+        
+        Args:
+            method: GET, POST, PUT, DELETE
+            endpoint: Ruta del endpoint (sin base_url)
+            response_type: "json" o "bytes"
+            timeout: Timeout personalizado (usa self.timeout por defecto)
+            **kwargs: Argumentos adicionales para httpx (params, json, etc.)
+        
+        Returns:
+            Respuesta en formato JSON o bytes
+        """
+        if timeout is None:
+            timeout = self.timeout
+        
+        url = f"{self.base_url}/{endpoint}"
+        
+        # Agregar headers con token
+        if 'headers' not in kwargs:
+            kwargs['headers'] = {}
+        kwargs['headers'].update(self._get_headers())
+        
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(method, url, **kwargs)
+            
+            # Manejo de errores de autenticación
+            if response.status_code == 401:
+                self.token = None
+                raise Exception("Sesión expirada. Por favor inicia sesión nuevamente.")
+            
+            response.raise_for_status()
+            
+            # Retornar según tipo de respuesta
+            if response_type == "bytes":
+                return response.content
+            else:
+                return response.json()
+    
     # ==================== AUTENTICACIÓN ====================
     
     async def login(self, username: str, password: str) -> Dict[str, Any]:
         """Login y obtener tokens"""
+        # No usar _request aquí porque no tiene token aún
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/auth/login",
@@ -49,13 +97,7 @@ class APIClient:
     
     async def get_current_user(self) -> Dict[str, Any]:
         """Obtener usuario actual"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/auth/me",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "auth/me")
     
     def logout(self):
         """Cerrar sesión (limpiar tokens)"""
@@ -72,98 +114,43 @@ class APIClient:
         estado: Optional[str] = None
     ) -> Dict[str, Any]:
         """Obtener lista de miembros"""
-        params = {
-            "page": page,
-            "page_size": page_size
-        }
+        params = {"page": page, "page_size": page_size}
         if q:
             params["q"] = q
         if estado:
             params["estado"] = estado
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/miembros",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "miembros", params=params)
     
     async def get_miembro(self, miembro_id: int) -> Dict[str, Any]:
         """Obtener detalles de un miembro"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/miembros/{miembro_id}",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", f"miembros/{miembro_id}")
     
     async def create_miembro(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Crear nuevo miembro"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/miembros",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("POST", "miembros", json=data)
     
     async def update_miembro(self, miembro_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """Actualizar miembro"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.put(
-                f"{self.base_url}/miembros/{miembro_id}",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("PUT", f"miembros/{miembro_id}", json=data)
     
     async def delete_miembro(self, miembro_id: int) -> Dict[str, Any]:
         """Eliminar miembro"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.delete(
-                f"{self.base_url}/miembros/{miembro_id}",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("DELETE", f"miembros/{miembro_id}")
     
     async def get_miembro_qr(self, miembro_id: int) -> bytes:
         """Descargar imagen QR del miembro"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/miembros/{miembro_id}/qr-image",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.content
+        return await self._request("GET", f"miembros/{miembro_id}/qr-image", response_type="bytes")
     
     # ==================== CATEGORÍAS ====================
     
     async def get_categorias(self) -> list:
         """Obtener todas las categorías"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/miembros/categorias",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "miembros/categorias")
     
     async def create_categoria(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Crear categoría"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/miembros/categorias",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("POST", "miembros/categorias", json=data)
     
     # ==================== PAGOS ====================
     
@@ -190,57 +177,27 @@ class APIClient:
         if estado:
             params["estado"] = estado
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/pagos",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "pagos", params=params)
     
     async def get_pago(self, pago_id: int) -> Dict[str, Any]:
         """Obtener detalles de un pago"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/pagos/{pago_id}",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", f"pagos/{pago_id}")
     
     async def create_pago(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Registrar pago"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/pagos",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("POST", "pagos", json=data)
     
     async def create_pago_rapido(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Registrar pago rápido"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/pagos/rapido",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("POST", "pagos/rapido", json=data)
     
     async def anular_pago(self, pago_id: int, motivo: str) -> Dict[str, Any]:
         """Anular un pago"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/pagos/{pago_id}/anular",
-                headers=self._get_headers(),
-                json={"pago_id": pago_id, "motivo": motivo}
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request(
+            "POST", 
+            f"pagos/{pago_id}/anular",
+            json={"pago_id": pago_id, "motivo": motivo}
+        )
     
     async def get_resumen_financiero(
         self,
@@ -253,15 +210,8 @@ class APIClient:
             params["mes"] = mes
         if anio:
             params["anio"] = anio
-            
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/pagos/resumen/financiero",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        
+        return await self._request("GET", "pagos/resumen/financiero", params=params)
     
     async def get_movimientos_caja(
         self,
@@ -277,26 +227,12 @@ class APIClient:
             params["fecha_fin"] = fecha_fin
         if tipo:
             params["tipo"] = tipo
-            
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/pagos/movimientos",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        
+        return await self._request("GET", "pagos/movimientos", params=params)
     
     async def registrar_movimiento_caja(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Registrar movimiento de caja"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/pagos/movimientos",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("POST", "pagos/movimientos", json=data)
     
     # ==================== ACCESOS ====================
     
@@ -311,24 +247,11 @@ class APIClient:
         if miembro_id:
             params["miembro_id"] = miembro_id
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/accesos/historial",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "accesos/historial", params=params)
     
     async def get_resumen_accesos(self) -> Dict[str, Any]:
         """Obtener resumen de accesos"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/accesos/resumen",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "accesos/resumen")
     
     async def validar_acceso_qr(
         self,
@@ -337,57 +260,29 @@ class APIClient:
         dispositivo_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Validar acceso mediante código QR"""
-        data = {
-            "qr_code": qr_code,
-        }
+        data = {"qr_code": qr_code}
         if ubicacion:
             data["ubicacion"] = ubicacion
         if dispositivo_id:
             data["dispositivo_id"] = dispositivo_id
-            
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/accesos/validar-qr",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        
+        return await self._request("POST", "accesos/validar-qr", json=data)
     
     async def get_estadisticas_accesos(self) -> Dict[str, Any]:
         """Obtener estadísticas de accesos del día"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/accesos/estadisticas",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "accesos/estadisticas")
     
     # ==================== USUARIOS ====================
     
     async def get_usuarios(self) -> list:
         """Obtener lista de usuarios del sistema"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/usuarios",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "usuarios")
 
     # ==================== REPORTES ====================
     
     async def get_reporte_socios(self, **filters) -> Dict[str, Any]:
         """Obtener reporte de socios"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/reportes/socios",
-                headers=self._get_headers(),
-                params=filters
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "reportes/socios", params=filters)
     
     async def get_reporte_financiero(
         self,
@@ -401,24 +296,11 @@ class APIClient:
         if fecha_hasta:
             params["fecha_hasta"] = fecha_hasta
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/reportes/financiero",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "reportes/financiero", params=params)
     
     async def get_reporte_morosidad(self) -> Dict[str, Any]:
         """Obtener reporte de morosidad"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/reportes/morosidad",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "reportes/morosidad")
     
     async def get_reporte_accesos(
         self,
@@ -432,14 +314,7 @@ class APIClient:
         if fecha_hasta:
             params["fecha_hasta"] = fecha_hasta
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/reportes/accesos",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "reportes/accesos", params=params)
 
     # ==================== EXPORTACIÓN DE REPORTES ====================
     
@@ -464,14 +339,13 @@ class APIClient:
         if categoria_id:
             params["categoria_id"] = categoria_id
         
-        async with httpx.AsyncClient(timeout=60) as client:  # Mayor timeout para exports
-            response = await client.get(
-                f"{self.base_url}/reportes/exportar/socios/excel",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.content
+        return await self._request(
+            "GET",
+            "reportes/exportar/socios/excel",
+            response_type="bytes",
+            timeout=60,
+            params=params
+        )
     
     async def exportar_pagos_excel(
         self,
@@ -498,14 +372,13 @@ class APIClient:
         if miembro_id:
             params["miembro_id"] = miembro_id
         
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.get(
-                f"{self.base_url}/reportes/exportar/pagos/excel",
-                headers=self._get_headers(),
-                params=params
-            )
-            response.raise_for_status()
-            return response.content
+        return await self._request(
+            "GET",
+            "reportes/exportar/pagos/excel",
+            response_type="bytes",
+            timeout=60,
+            params=params
+        )
     
     async def exportar_morosidad_excel(self) -> bytes:
         """
@@ -514,13 +387,12 @@ class APIClient:
         Returns:
             bytes: Archivo Excel en bytes
         """
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.get(
-                f"{self.base_url}/reportes/exportar/morosidad/excel",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.content
+        return await self._request(
+            "GET",
+            "reportes/exportar/morosidad/excel",
+            response_type="bytes",
+            timeout=60
+        )
     
     # ==================== NOTIFICACIONES ====================
     
@@ -543,14 +415,12 @@ class APIClient:
         if email:
             data["email"] = email
         
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                f"{self.base_url}/notificaciones/recordatorio",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request(
+            "POST",
+            "notificaciones/recordatorio",
+            json=data,
+            timeout=30
+        )
     
     async def enviar_recordatorios_masivos(
         self,
@@ -573,14 +443,12 @@ class APIClient:
             "incluir_email": True
         }
         
-        async with httpx.AsyncClient(timeout=120) as client:  # Mayor timeout para masivos
-            response = await client.post(
-                f"{self.base_url}/notificaciones/recordatorios-masivos",
-                headers=self._get_headers(),
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request(
+            "POST",
+            "notificaciones/recordatorios-masivos",
+            json=data,
+            timeout=120
+        )
     
     async def test_email_config(self) -> Dict[str, Any]:
         """
@@ -589,13 +457,7 @@ class APIClient:
         Returns:
             Resultado del test
         """
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(
-                f"{self.base_url}/notificaciones/test-email",
-                headers=self._get_headers()
-            )
-            response.raise_for_status()
-            return response.json()
+        return await self._request("GET", "notificaciones/test-email", timeout=30)
 
 
 # Instancia global

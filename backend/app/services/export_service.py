@@ -1,420 +1,432 @@
 """
-Servicio de Exportación de Reportes
+Servicio de exportación a Excel
 backend/app/services/export_service.py
 """
-from io import BytesIO
-from datetime import datetime, date
-from typing import List, Dict, Any
-import logging
-
-# Excel
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from io import BytesIO
+from typing import List
+from datetime import datetime
+from sqlalchemy.orm import Session
 
-# PDF
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-
-logger = logging.getLogger(__name__)
+from app.models.miembro import Miembro
+from app.models.pago import Pago
+from app.models.categoria import Categoria
 
 
 class ExportService:
-    """Servicio para exportar reportes en diferentes formatos"""
+    """Servicio para exportar datos a Excel"""
     
     @staticmethod
-    def exportar_socios_excel(socios: List[Dict[str, Any]], filename: str = None) -> BytesIO:
+    def _apply_header_style(worksheet, row_num: int = 1):
+        """Aplicar estilo a los headers de la tabla"""
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        alignment = Alignment(horizontal="center", vertical="center")
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        for cell in worksheet[row_num]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = alignment
+            cell.border = border
+    
+    @staticmethod
+    def _auto_adjust_columns(worksheet):
+        """Ajustar automáticamente el ancho de las columnas"""
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = get_column_letter(column[0].column)
+            
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            
+            adjusted_width = min(max_length + 2, 50)  # Máximo 50 caracteres
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+    
+    @staticmethod
+    def _add_metadata(worksheet, title: str):
+        """Agregar metadata al inicio del documento"""
+        # Título
+        worksheet.insert_rows(1, 2)
+        worksheet['A1'] = title
+        worksheet['A1'].font = Font(bold=True, size=14, color="366092")
+        
+        # Fecha de generación
+        worksheet['A2'] = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+        worksheet['A2'].font = Font(italic=True, size=10, color="666666")
+        
+        # Ajustar fila de headers
+        worksheet.row_dimensions[3].height = 25
+    
+    @staticmethod
+    def generar_excel_socios(socios: List[Miembro]) -> bytes:
         """
-        Exportar lista de socios a Excel
+        Generar archivo Excel con listado de socios
         
         Args:
-            socios: Lista de diccionarios con datos de socios
-            filename: Nombre del archivo (opcional)
+            socios: Lista de objetos Miembro
         
         Returns:
-            BytesIO con el archivo Excel
+            bytes: Archivo Excel en formato bytes
         """
-        if not filename:
-            filename = f"socios_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        
-        # Crear workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Socios"
         
-        # Estilos
-        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=12)
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        
         # Headers
         headers = [
-            "N° Socio", "Documento", "Nombre Completo", "Email", 
-            "Teléfono", "Estado", "Categoría", "Saldo", "Fecha Alta"
+            "N° Socio",
+            "DNI",
+            "Nombre Completo",
+            "Email",
+            "Teléfono",
+            "Categoría",
+            "Cuota Mensual",
+            "Estado",
+            "Fecha Alta",
+            "Deuda Actual",
+            "Días Mora"
         ]
-        
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.value = header
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = border
+        ws.append(headers)
         
         # Datos
-        for row_num, socio in enumerate(socios, 2):
-            ws.cell(row=row_num, column=1).value = socio.get("numero_miembro", "")
-            ws.cell(row=row_num, column=2).value = socio.get("numero_documento", "")
-            ws.cell(row=row_num, column=3).value = socio.get("nombre_completo", "")
-            ws.cell(row=row_num, column=4).value = socio.get("email", "")
-            ws.cell(row=row_num, column=5).value = socio.get("telefono", "")
-            ws.cell(row=row_num, column=6).value = socio.get("estado", "").upper()
-            
-            categoria = socio.get("categoria")
-            ws.cell(row=row_num, column=7).value = categoria.get("nombre", "") if categoria else ""
-            
-            ws.cell(row=row_num, column=8).value = socio.get("saldo_cuenta", 0)
-            ws.cell(row=row_num, column=8).number_format = '$#,##0.00'
-            
-            fecha_alta = socio.get("fecha_alta")
-            if fecha_alta:
-                if isinstance(fecha_alta, str):
-                    fecha_alta = datetime.fromisoformat(fecha_alta).date()
-                ws.cell(row=row_num, column=9).value = fecha_alta
-                ws.cell(row=row_num, column=9).number_format = 'DD/MM/YYYY'
-            
-            # Aplicar bordes
-            for col in range(1, len(headers) + 1):
-                ws.cell(row=row_num, column=col).border = border
+        for socio in socios:
+            ws.append([
+                socio.numero_miembro,
+                socio.dni,
+                socio.nombre_completo,
+                socio.email or "Sin email",
+                socio.telefono or "Sin teléfono",
+                socio.categoria.nombre if socio.categoria else "Sin categoría",
+                f"${socio.categoria.cuota_mensual:,.2f}" if socio.categoria else "$0.00",
+                socio.estado,
+                socio.fecha_alta.strftime('%d/%m/%Y') if socio.fecha_alta else "",
+                f"${socio.deuda_actual:,.2f}" if hasattr(socio, 'deuda_actual') else "$0.00",
+                socio.dias_mora if hasattr(socio, 'dias_mora') else 0
+            ])
         
-        # Ajustar ancho de columnas
-        for col in range(1, len(headers) + 1):
-            ws.column_dimensions[get_column_letter(col)].width = 15
+        # Aplicar estilos
+        ExportService._apply_header_style(ws)
+        ExportService._auto_adjust_columns(ws)
+        ExportService._add_metadata(ws, "Listado de Socios")
         
-        ws.column_dimensions['C'].width = 30  # Nombre completo
-        ws.column_dimensions['D'].width = 25  # Email
-        
-        # Agregar filtros
-        ws.auto_filter.ref = ws.dimensions
+        # Congelar primera fila (headers)
+        ws.freeze_panes = "A4"
         
         # Guardar en BytesIO
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-        
-        logger.info(f"Exportados {len(socios)} socios a Excel")
-        return output
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
     
     @staticmethod
-    def exportar_pagos_excel(pagos: List[Dict[str, Any]], filename: str = None) -> BytesIO:
-        """Exportar lista de pagos a Excel"""
-        if not filename:
-            filename = f"pagos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    def generar_excel_pagos(pagos: List[Pago], db: Session) -> bytes:
+        """
+        Generar archivo Excel con listado de pagos
         
+        Args:
+            pagos: Lista de objetos Pago
+            db: Sesión de base de datos
+        
+        Returns:
+            bytes: Archivo Excel en formato bytes
+        """
         wb = Workbook()
         ws = wb.active
         ws.title = "Pagos"
         
-        # Estilos
-        header_fill = PatternFill(start_color="70AD47", end_color="70AD47", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=12)
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        
         # Headers
         headers = [
-            "Comprobante", "Fecha", "Socio", "N° Socio", "Concepto",
-            "Monto", "Descuento", "Recargo", "Total", "Método", "Estado"
+            "ID Pago",
+            "Fecha",
+            "N° Socio",
+            "Nombre Socio",
+            "Concepto",
+            "Monto",
+            "Método Pago",
+            "Estado",
+            "Mes/Año Pago",
+            "Registrado Por",
+            "Observaciones"
         ]
-        
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.value = header
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = border
+        ws.append(headers)
         
         # Datos
-        for row_num, pago in enumerate(pagos, 2):
-            ws.cell(row=row_num, column=1).value = pago.get("numero_comprobante", "")
+        total_monto = 0
+        for pago in pagos:
+            # Cargar relaciones si es necesario
+            if hasattr(pago, 'miembro') and pago.miembro:
+                nombre_socio = pago.miembro.nombre_completo
+                numero_socio = pago.miembro.numero_miembro
+            else:
+                nombre_socio = "N/A"
+                numero_socio = "N/A"
             
-            fecha_pago = pago.get("fecha_pago")
-            if fecha_pago:
-                if isinstance(fecha_pago, str):
-                    fecha_pago = datetime.fromisoformat(fecha_pago).date()
-                ws.cell(row=row_num, column=2).value = fecha_pago
-                ws.cell(row=row_num, column=2).number_format = 'DD/MM/YYYY'
+            registrado_por = "Sistema"
+            if hasattr(pago, 'usuario') and pago.usuario:
+                registrado_por = pago.usuario.username
             
-            ws.cell(row=row_num, column=3).value = pago.get("nombre_miembro", "")
+            mes_anio = ""
+            if pago.mes and pago.anio:
+                mes_anio = f"{pago.mes:02d}/{pago.anio}"
             
-            # Obtener número de socio si está en miembro
-            miembro = pago.get("miembro")
-            if miembro:
-                ws.cell(row=row_num, column=4).value = miembro.get("numero_miembro", "")
+            ws.append([
+                pago.id,
+                pago.fecha_pago.strftime('%d/%m/%Y %H:%M') if pago.fecha_pago else "",
+                numero_socio,
+                nombre_socio,
+                pago.concepto or "Cuota mensual",
+                f"${pago.monto:,.2f}",
+                pago.metodo_pago,
+                pago.estado,
+                mes_anio,
+                registrado_por,
+                pago.observaciones or ""
+            ])
             
-            ws.cell(row=row_num, column=5).value = pago.get("concepto", "")
-            
-            # Montos
-            ws.cell(row=row_num, column=6).value = pago.get("monto", 0)
-            ws.cell(row=row_num, column=6).number_format = '$#,##0.00'
-            
-            ws.cell(row=row_num, column=7).value = pago.get("descuento", 0)
-            ws.cell(row=row_num, column=7).number_format = '$#,##0.00'
-            
-            ws.cell(row=row_num, column=8).value = pago.get("recargo", 0)
-            ws.cell(row=row_num, column=8).number_format = '$#,##0.00'
-            
-            ws.cell(row=row_num, column=9).value = pago.get("monto_final", 0)
-            ws.cell(row=row_num, column=9).number_format = '$#,##0.00'
-            
-            ws.cell(row=row_num, column=10).value = pago.get("metodo_pago", "").upper()
-            ws.cell(row=row_num, column=11).value = pago.get("estado", "").upper()
-            
-            # Aplicar bordes
-            for col in range(1, len(headers) + 1):
-                ws.cell(row=row_num, column=col).border = border
+            if pago.estado != "ANULADO":
+                total_monto += pago.monto
         
-        # Ajustar ancho de columnas
-        for col in range(1, len(headers) + 1):
-            ws.column_dimensions[get_column_letter(col)].width = 15
+        # Fila de total
+        ws.append([])
+        total_row = ws.max_row
+        ws[f'E{total_row}'] = "TOTAL:"
+        ws[f'E{total_row}'].font = Font(bold=True)
+        ws[f'F{total_row}'] = f"${total_monto:,.2f}"
+        ws[f'F{total_row}'].font = Font(bold=True, color="006600")
         
-        ws.column_dimensions['C'].width = 25  # Nombre socio
-        ws.column_dimensions['E'].width = 30  # Concepto
+        # Aplicar estilos
+        ExportService._apply_header_style(ws)
+        ExportService._auto_adjust_columns(ws)
+        ExportService._add_metadata(ws, "Listado de Pagos")
         
-        # Fila de totales
-        total_row = len(pagos) + 2
-        ws.cell(row=total_row, column=5).value = "TOTAL"
-        ws.cell(row=total_row, column=5).font = Font(bold=True)
+        # Congelar primera fila
+        ws.freeze_panes = "A4"
         
-        # Sumar montos finales
-        ws.cell(row=total_row, column=9).value = f'=SUM(I2:I{len(pagos)+1})'
-        ws.cell(row=total_row, column=9).number_format = '$#,##0.00'
-        ws.cell(row=total_row, column=9).font = Font(bold=True)
-        ws.cell(row=total_row, column=9).fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-        
-        # Filtros
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(pagos)+1}"
-        
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-        
-        logger.info(f"Exportados {len(pagos)} pagos a Excel")
-        return output
+        # Guardar en BytesIO
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
     
     @staticmethod
-    def exportar_morosidad_excel(morosos: List[Dict[str, Any]], filename: str = None) -> BytesIO:
-        """Exportar reporte de morosidad a Excel"""
-        if not filename:
-            filename = f"morosidad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    def generar_excel_morosidad(morosos: List[dict]) -> bytes:
+        """
+        Generar archivo Excel con reporte de morosidad
         
+        Args:
+            morosos: Lista de diccionarios con datos de morosos
+        
+        Returns:
+            bytes: Archivo Excel en formato bytes
+        """
         wb = Workbook()
         ws = wb.active
         ws.title = "Morosidad"
         
-        # Estilos
-        header_fill = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=12)
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+        # Headers
+        headers = [
+            "N° Socio",
+            "DNI",
+            "Nombre Completo",
+            "Email",
+            "Teléfono",
+            "Categoría",
+            "Cuota Mensual",
+            "Deuda Total",
+            "Días de Mora",
+            "Último Pago",
+            "Estado"
+        ]
+        ws.append(headers)
+        
+        # Datos
+        total_deuda = 0
+        for moroso in morosos:
+            ws.append([
+                moroso.get("numero_miembro", ""),
+                moroso.get("dni", ""),
+                moroso.get("nombre_completo", ""),
+                moroso.get("email", "Sin email"),
+                moroso.get("telefono", "Sin teléfono"),
+                moroso.get("categoria", "Sin categoría"),
+                f"${moroso.get('cuota_mensual', 0):,.2f}",
+                f"${moroso.get('deuda', 0):,.2f}",
+                moroso.get("dias_mora", 0),
+                moroso.get("ultimo_pago", "Nunca"),
+                moroso.get("estado", "MOROSO")
+            ])
+            total_deuda += moroso.get("deuda", 0)
+        
+        # Fila de totales
+        ws.append([])
+        summary_row = ws.max_row
+        ws[f'A{summary_row}'] = "RESUMEN:"
+        ws[f'A{summary_row}'].font = Font(bold=True, size=12)
+        
+        ws.append([])
+        ws.append([
+            "",
+            "",
+            "",
+            "",
+            "",
+            "Total Socios Morosos:",
+            len(morosos),
+            "Deuda Total:",
+            f"${total_deuda:,.2f}",
+            "",
+            ""
+        ])
+        
+        summary_data_row = ws.max_row
+        ws[f'F{summary_data_row}'].font = Font(bold=True)
+        ws[f'H{summary_data_row}'].font = Font(bold=True)
+        ws[f'I{summary_data_row}'].font = Font(bold=True, color="CC0000")
+        
+        # Aplicar estilos
+        ExportService._apply_header_style(ws)
+        ExportService._auto_adjust_columns(ws)
+        ExportService._add_metadata(ws, "Reporte de Morosidad")
+        
+        # Congelar primera fila
+        ws.freeze_panes = "A4"
+        
+        # Resaltar filas según días de mora
+        red_fill = PatternFill(start_color="FFE6E6", end_color="FFE6E6", fill_type="solid")
+        orange_fill = PatternFill(start_color="FFF4E6", end_color="FFF4E6", fill_type="solid")
+        
+        for row in range(4, ws.max_row - 2):  # Excluir headers y resumen
+            dias_mora_cell = ws[f'I{row}']
+            try:
+                dias_mora = int(dias_mora_cell.value) if dias_mora_cell.value else 0
+                if dias_mora > 30:
+                    for col in range(1, 12):
+                        ws.cell(row=row, column=col).fill = red_fill
+                elif dias_mora > 15:
+                    for col in range(1, 12):
+                        ws.cell(row=row, column=col).fill = orange_fill
+            except:
+                pass
+        
+        # Guardar en BytesIO
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
+    
+    @staticmethod
+    def generar_excel_accesos(accesos: List[dict]) -> bytes:
+        """
+        Generar archivo Excel con historial de accesos
+        
+        Args:
+            accesos: Lista de diccionarios con datos de accesos
+        
+        Returns:
+            bytes: Archivo Excel en formato bytes
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Accesos"
         
         # Headers
         headers = [
-            "N° Socio", "Nombre Completo", "Email", "Teléfono",
-            "Deuda", "Días Mora", "Última Cuota", "Categoría"
+            "ID",
+            "Fecha/Hora",
+            "N° Socio",
+            "Nombre Socio",
+            "Tipo Acceso",
+            "Resultado",
+            "Ubicación",
+            "Dispositivo",
+            "Observaciones"
         ]
+        ws.append(headers)
         
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.value = header
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = border
+        # Contadores
+        total_exitosos = 0
+        total_denegados = 0
         
         # Datos
-        for row_num, moroso in enumerate(morosos, 2):
-            ws.cell(row=row_num, column=1).value = moroso.get("numero_miembro", "")
-            ws.cell(row=row_num, column=2).value = moroso.get("nombre_completo", "")
-            ws.cell(row=row_num, column=3).value = moroso.get("email", "")
-            ws.cell(row=row_num, column=4).value = moroso.get("telefono", "")
-            
-            ws.cell(row=row_num, column=5).value = moroso.get("deuda", 0)
-            ws.cell(row=row_num, column=5).number_format = '$#,##0.00'
-            
-            ws.cell(row=row_num, column=6).value = moroso.get("dias_mora", 0)
-            
-            ultima_cuota = moroso.get("ultima_cuota_pagada")
-            if ultima_cuota:
-                if isinstance(ultima_cuota, str):
-                    ultima_cuota = datetime.fromisoformat(ultima_cuota).date()
-                ws.cell(row=row_num, column=7).value = ultima_cuota
-                ws.cell(row=row_num, column=7).number_format = 'DD/MM/YYYY'
-            
-            ws.cell(row=row_num, column=8).value = moroso.get("categoria", "")
-            
-            # Aplicar bordes
-            for col in range(1, len(headers) + 1):
-                ws.cell(row=row_num, column=col).border = border
-            
-            # Colorear según deuda
-            deuda = moroso.get("deuda", 0)
-            if deuda > 5000:
-                fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-            elif deuda > 2000:
-                fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        for acceso in accesos:
+            resultado = acceso.get("permitido", False)
+            if resultado:
+                total_exitosos += 1
             else:
-                fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                total_denegados += 1
             
-            ws.cell(row=row_num, column=5).fill = fill
+            ws.append([
+                acceso.get("id", ""),
+                acceso.get("fecha_hora", ""),
+                acceso.get("numero_miembro", ""),
+                acceso.get("nombre_socio", ""),
+                acceso.get("tipo_acceso", "QR"),
+                "EXITOSO" if resultado else "DENEGADO",
+                acceso.get("ubicacion", "Principal"),
+                acceso.get("dispositivo_id", "N/A"),
+                acceso.get("motivo_denegacion", "") if not resultado else ""
+            ])
         
-        # Ajustar anchos
-        ws.column_dimensions['A'].width = 12
-        ws.column_dimensions['B'].width = 30
-        ws.column_dimensions['C'].width = 25
-        ws.column_dimensions['D'].width = 15
-        ws.column_dimensions['E'].width = 12
-        ws.column_dimensions['F'].width = 12
-        ws.column_dimensions['G'].width = 15
-        ws.column_dimensions['H'].width = 20
+        # Resumen
+        ws.append([])
+        summary_row = ws.max_row
+        ws[f'A{summary_row}'] = "ESTADÍSTICAS:"
+        ws[f'A{summary_row}'].font = Font(bold=True, size=12)
         
-        # Fila de totales
-        total_row = len(morosos) + 2
-        ws.cell(row=total_row, column=4).value = "TOTAL DEUDA"
-        ws.cell(row=total_row, column=4).font = Font(bold=True)
-        ws.cell(row=total_row, column=4).alignment = Alignment(horizontal="right")
+        ws.append([
+            "",
+            "Total Accesos:",
+            len(accesos),
+            "",
+            "Exitosos:",
+            total_exitosos,
+            "",
+            "Denegados:",
+            total_denegados
+        ])
         
-        ws.cell(row=total_row, column=5).value = f'=SUM(E2:E{len(morosos)+1})'
-        ws.cell(row=total_row, column=5).number_format = '$#,##0.00'
-        ws.cell(row=total_row, column=5).font = Font(bold=True, size=14)
-        ws.cell(row=total_row, column=5).fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-        ws.cell(row=total_row, column=5).font = Font(bold=True, color="FFFFFF", size=14)
+        stats_row = ws.max_row
+        ws[f'B{stats_row}'].font = Font(bold=True)
+        ws[f'E{stats_row}'].font = Font(bold=True)
+        ws[f'F{stats_row}'].font = Font(color="006600")
+        ws[f'H{stats_row}'].font = Font(bold=True)
+        ws[f'I{stats_row}'].font = Font(color="CC0000")
         
-        # Filtros
-        ws.auto_filter.ref = ws.dimensions
+        # Aplicar estilos
+        ExportService._apply_header_style(ws)
+        ExportService._auto_adjust_columns(ws)
+        ExportService._add_metadata(ws, "Historial de Accesos")
         
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
+        # Congelar primera fila
+        ws.freeze_panes = "A4"
         
-        logger.info(f"Exportados {len(morosos)} morosos a Excel")
-        return output
-    
-    @staticmethod
-    def exportar_reporte_pdf(
-        titulo: str,
-        subtitulo: str,
-        datos: List[Dict[str, Any]],
-        columnas: List[str],
-        filename: str = None
-    ) -> BytesIO:
-        """
-        Exportar reporte genérico a PDF
+        # Colorear según resultado
+        green_fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+        red_fill = PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid")
         
-        Args:
-            titulo: Título del reporte
-            subtitulo: Subtítulo (ej: fecha)
-            datos: Lista de diccionarios con los datos
-            columnas: Lista de nombres de columnas a mostrar
-            filename: Nombre del archivo
+        for row in range(4, ws.max_row - 1):
+            resultado_cell = ws[f'F{row}']
+            if resultado_cell.value == "EXITOSO":
+                for col in range(1, 10):
+                    ws.cell(row=row, column=col).fill = green_fill
+            elif resultado_cell.value == "DENEGADO":
+                for col in range(1, 10):
+                    ws.cell(row=row, column=col).fill = red_fill
         
-        Returns:
-            BytesIO con el PDF
-        """
-        if not filename:
-            filename = f"reporte_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        
+        # Guardar en BytesIO
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        elements = []
-        
-        # Estilos
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=18,
-            textColor=colors.HexColor('#1f4788'),
-            spaceAfter=12,
-            alignment=1  # Centrado
-        )
-        
-        subtitle_style = ParagraphStyle(
-            'CustomSubtitle',
-            parent=styles['Normal'],
-            fontSize=10,
-            textColor=colors.grey,
-            spaceAfter=20,
-            alignment=1
-        )
-        
-        # Título
-        elements.append(Paragraph(titulo, title_style))
-        elements.append(Paragraph(subtitulo, subtitle_style))
-        elements.append(Spacer(1, 0.2 * inch))
-        
-        # Preparar datos para la tabla
-        table_data = [columnas]  # Headers
-        
-        for item in datos:
-            row = [str(item.get(col, "")) for col in columnas]
-            table_data.append(row)
-        
-        # Crear tabla
-        table = Table(table_data)
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-        ]))
-        
-        elements.append(table)
-        
-        # Agregar pie de página con fecha
-        elements.append(Spacer(1, 0.3 * inch))
-        footer_style = ParagraphStyle(
-            'Footer',
-            parent=styles['Normal'],
-            fontSize=8,
-            textColor=colors.grey,
-            alignment=2  # Derecha
-        )
-        elements.append(
-            Paragraph(
-                f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-                footer_style
-            )
-        )
-        
-        # Construir PDF
-        doc.build(elements)
+        wb.save(buffer)
         buffer.seek(0)
-        
-        logger.info(f"Generado PDF: {titulo}")
-        return buffer
+        return buffer.getvalue()
