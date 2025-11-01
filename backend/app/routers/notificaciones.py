@@ -2,7 +2,7 @@
 Router de Notificaciones - Envío de emails
 backend/app/routers/notificaciones.py
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional
 import logging
@@ -13,6 +13,7 @@ from app.models.usuario import Usuario
 from app.utils.dependencies import get_current_user, require_operador
 from app.schemas.common import MessageResponse
 from app.config import settings
+from app.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ router = APIRouter()
 async def enviar_recordatorio_individual(
     miembro_id: int,
     email: Optional[str] = None,
+    background_tasks: BackgroundTasks = None,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -58,24 +60,38 @@ async def enviar_recordatorio_individual(
     
     deuda = abs(miembro.saldo_cuenta)
     
-    # TODO: Implementar envío real de email
-    # from app.services.email_service import EmailService
-    # EmailService.enviar_recordatorio_cuota(
-    #     email=email_destino,
-    #     nombre=miembro.nombre_completo,
-    #     numero_socio=miembro.numero_miembro,
-    #     deuda=deuda
-    # )
+    try:
+        # Enviar recordatorio usando el servicio
+        resultado = await NotificationService.enviar_recordatorio_individual(
+            miembro_id=miembro_id,
+            db=db,
+            email_override=email
+        )
+        
+        if not resultado["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=resultado.get("error", "Error al enviar email")
+            )
+        
+        logger.info(
+            f"[EMAIL] Recordatorio enviado a {miembro.numero_miembro} "
+            f"({email_destino}) - Deuda: ${deuda:.2f}"
+        )
+        
+        return MessageResponse(
+            message="Recordatorio enviado exitosamente",
+            detail=f"Email enviado a {email_destino}"
+        )
     
-    logger.info(
-        f"[EMAIL] Recordatorio enviado a {miembro.numero_miembro} "
-        f"({email_destino}) - Deuda: ${deuda:.2f}"
-    )
-    
-    return MessageResponse(
-        message="Recordatorio enviado exitosamente",
-        detail=f"Email enviado a {email_destino}"
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enviando recordatorio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al enviar email: {str(e)}"
+        )
 
 
 @router.post("/recordatorios-masivos")
@@ -83,6 +99,7 @@ async def enviar_recordatorios_masivos(
     solo_morosos: bool = True,
     dias_mora_minimo: int = 5,
     incluir_email: bool = True,
+    background_tasks: BackgroundTasks = None,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -92,69 +109,69 @@ async def enviar_recordatorios_masivos(
     Args:
         solo_morosos: Si True, solo envía a socios con estado MOROSO
         dias_mora_minimo: Días mínimos de mora para enviar
-        incluir_email: Si True, envía emails (False para test)
+        incluir_email: Si True, envía emails (False para test/preview)
     
     Returns:
         Estadísticas de envío
     """
-    # Construir query base
-    query = db.query(Miembro).filter(
-        Miembro.is_deleted == False,
-        Miembro.saldo_cuenta < 0,  # Solo con deuda
-        Miembro.email.isnot(None)   # Solo con email
-    )
-    
-    # Filtrar por estado si se solicita
-    if solo_morosos:
-        query = query.filter(Miembro.estado == EstadoMiembro.MOROSO)
-    
-    # Filtrar por días de mora
-    if dias_mora_minimo > 0:
-        # TODO: Implementar filtro por días de mora
-        # Requiere calcular días desde última cuota o vencimiento
-        pass
-    
-    morosos = query.all()
-    
-    enviados = 0
-    fallidos = 0
-    
-    for miembro in morosos:
-        try:
-            deuda = abs(miembro.saldo_cuenta)
-            
-            # TODO: Implementar envío real de email
-            # from app.services.email_service import EmailService
-            # EmailService.enviar_recordatorio_cuota(
-            #     email=miembro.email,
-            #     nombre=miembro.nombre_completo,
-            #     numero_socio=miembro.numero_miembro,
-            #     deuda=deuda
-            # )
-            
-            logger.info(
-                f"[EMAIL] Recordatorio a {miembro.numero_miembro} "
-                f"({miembro.email}) - ${deuda:.2f}"
+    try:
+        # Preview mode: solo contar sin enviar
+        if not incluir_email:
+            query = db.query(Miembro).filter(
+                Miembro.is_deleted == False,
+                Miembro.saldo_cuenta < 0,
+                Miembro.email.isnot(None)
             )
             
-            enviados += 1
+            if solo_morosos:
+                query = query.filter(Miembro.estado == EstadoMiembro.MOROSO)
             
-        except Exception as e:
-            logger.error(f"[ERROR] Error enviando a {miembro.numero_miembro}: {e}")
-            fallidos += 1
+            morosos = query.all()
+            
+            # Filtrar por días de mora
+            if dias_mora_minimo > 0:
+                morosos = [
+                    m for m in morosos 
+                    if (m.dias_mora or 0) >= dias_mora_minimo
+                ]
+            
+            return {
+                "success": True,
+                "enviados": 0,
+                "fallidos": 0,
+                "total_procesados": len(morosos),
+                "preview": True,
+                "message": f"Se enviarían {len(morosos)} recordatorios"
+            }
+        
+        # Envío real usando el servicio
+        resultado = await NotificationService.enviar_recordatorios_masivos(
+            solo_morosos=solo_morosos,
+            dias_mora_minimo=dias_mora_minimo,
+            db=db
+        )
+        
+        logger.info(
+            f"[EMAIL] Recordatorios masivos - "
+            f"Enviados: {resultado['enviados']}, "
+            f"Fallidos: {resultado['fallidos']}"
+        )
+        
+        return {
+            "success": True,
+            "enviados": resultado["enviados"],
+            "fallidos": resultado["fallidos"],
+            "total_procesados": resultado.get("total_procesados", 0),
+            "message": f"Recordatorios enviados: {resultado['enviados']}",
+            "errores": resultado.get("errores", [])
+        }
     
-    logger.info(
-        f"[EMAIL] Recordatorios masivos - "
-        f"Enviados: {enviados}, Fallidos: {fallidos}"
-    )
-    
-    return {
-        "success": True,
-        "enviados": enviados,
-        "fallidos": fallidos,
-        "total_procesados": len(morosos),
-        "message": f"Recordatorios programados: {enviados}"
-    }
+    except Exception as e:
+        logger.error(f"Error en envío masivo: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al enviar recordatorios: {str(e)}"
+        )
 
 
 @router.get("/test-email")
@@ -164,39 +181,93 @@ async def test_configuracion_email(
     """
     Probar configuración de email
     
-    Verifica que las credenciales SMTP estén configuradas.
+    Verifica que las credenciales SMTP estén configuradas y funcionen.
     """
-    # Verificar configuración
-    if not settings.SMTP_HOST or not settings.SMTP_USER:
+    try:
+        # Usar el servicio para probar
+        resultado = await NotificationService.test_email_config()
+        
+        if resultado["success"]:
+            return {
+                "success": True,
+                "configured": True,
+                "message": "Configuración SMTP correcta",
+                "detail": resultado.get("message"),
+                "config": resultado.get("config", {})
+            }
+        else:
+            return {
+                "success": False,
+                "configured": False,
+                "message": "Error en configuración SMTP",
+                "detail": resultado.get("error"),
+                "help": "Verifica las variables SMTP_* en tu archivo .env"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error probando configuración email: {e}")
         return {
             "success": False,
             "configured": False,
-            "message": "Configuración SMTP no encontrada",
-            "detail": "Completa las variables SMTP_* en el .env"
+            "message": "Error al probar configuración",
+            "detail": str(e),
+            "help": "Verifica las variables SMTP_HOST, SMTP_USER, SMTP_PASSWORD en .env"
         }
+
+
+@router.get("/preview-morosos")
+async def preview_morosos(
+    solo_morosos: bool = True,
+    dias_mora_minimo: int = 5,
+    current_user: Usuario = Depends(require_operador),
+    db: Session = Depends(get_db)
+):
+    """
+    Vista previa de socios que recibirían recordatorios
     
-    # TODO: Intentar enviar email de prueba
-    # from app.services.email_service import EmailService
-    # try:
-    #     EmailService.enviar_test(current_user.email)
-    #     return {
-    #         "success": True,
-    #         "configured": True,
-    #         "message": "Configuración correcta",
-    #         "detail": f"Email de prueba enviado a {current_user.email}"
-    #     }
-    # except Exception as e:
-    #     return {
-    #         "success": False,
-    #         "configured": True,
-    #         "message": "Error en configuración SMTP",
-    #         "detail": str(e)
-    #     }
+    Útil para verificar antes de enviar masivamente.
+    """
+    query = db.query(Miembro).filter(
+        Miembro.is_deleted == False,
+        Miembro.saldo_cuenta < 0,
+        Miembro.email.isnot(None)
+    )
+    
+    if solo_morosos:
+        query = query.filter(Miembro.estado == EstadoMiembro.MOROSO)
+    
+    morosos = query.all()
+    
+    # Filtrar por días de mora
+    if dias_mora_minimo > 0:
+        morosos = [
+            m for m in morosos 
+            if (m.dias_mora or 0) >= dias_mora_minimo
+        ]
+    
+    # Preparar preview
+    preview = []
+    total_deuda = 0
+    
+    for miembro in morosos[:50]:  # Limitar a 50 para preview
+        deuda = abs(miembro.saldo_cuenta)
+        total_deuda += deuda
+        
+        preview.append({
+            "numero_miembro": miembro.numero_miembro,
+            "nombre_completo": miembro.nombre_completo,
+            "email": miembro.email,
+            "deuda": deuda,
+            "dias_mora": miembro.dias_mora or 0,
+            "estado": miembro.estado.value
+        })
     
     return {
-        "success": True,
-        "configured": True,
-        "message": "Configuración SMTP encontrada",
-        "detail": f"Host: {settings.SMTP_HOST}, User: {settings.SMTP_USER}",
-        "warning": "Envío de emails no implementado aún (TODO)"
+        "total_destinatarios": len(morosos),
+        "total_deuda": total_deuda,
+        "preview_primeros_50": preview,
+        "filtros": {
+            "solo_morosos": solo_morosos,
+            "dias_mora_minimo": dias_mora_minimo
+        }
     }

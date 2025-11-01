@@ -217,7 +217,7 @@ class AccesosQRView(ft.Column):
             ft.Row(
                 [
                     ft.Text(
-                        "🚪 Control de Accesos - Escáner QR",
+                        "Control de Accesos - Escáner QR",
                         size=24,
                         weight=ft.FontWeight.BOLD
                     ),

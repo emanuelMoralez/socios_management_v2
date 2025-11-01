@@ -39,7 +39,7 @@ class CategoriasView(ft.Column):
             ft.Row(
                 [
                     ft.Text(
-                        "📂 Gestión de Categorías",
+                        "Gestión de Categorías",
                         size=24,
                         weight=ft.FontWeight.BOLD
                     ),

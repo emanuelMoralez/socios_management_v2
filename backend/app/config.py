@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "2.0.0"
     ENVIRONMENT: str = "development"  # development, staging, production
     DEBUG: bool = True
+    PROJECT_NAME: str = "Sistema de Gestión de Socios"  # Para emails
     
     # ==================== BASE DE DATOS ====================
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/gestion_socios"
@@ -50,13 +51,14 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_DECODE_RESPONSES: bool = True
     
-    # ==================== EMAIL ====================
+    # ==================== EMAIL / SMTP ====================
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
     SMTP_FROM_NAME: str = "Sistema de Gestión"
+    SMTP_TLS: bool = True  # ← NUEVO: Para usar STARTTLS
     
     # ==================== ARCHIVOS ====================
     UPLOAD_DIR: str = "uploads"

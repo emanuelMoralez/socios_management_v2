@@ -40,7 +40,7 @@ class UsuariosView(ft.Column):
             ft.Row(
                 [
                     ft.Text(
-                        "👥 Gestión de Usuarios",
+                        "Gestión de Usuarios",
                         size=24,
                         weight=ft.FontWeight.BOLD
                     ),

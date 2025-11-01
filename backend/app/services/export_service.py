@@ -71,15 +71,15 @@ class ExportService:
         worksheet.row_dimensions[3].height = 25
     
     @staticmethod
-    def generar_excel_socios(socios: List[Miembro]) -> bytes:
+    def exportar_socios_excel(socios: List[dict]) -> BytesIO:
         """
-        Generar archivo Excel con listado de socios
+        Exportar listado de socios a Excel
         
         Args:
-            socios: Lista de objetos Miembro
+            socios: Lista de diccionarios con datos de socios
         
         Returns:
-            bytes: Archivo Excel en formato bytes
+            BytesIO: Archivo Excel como objeto BytesIO
         """
         wb = Workbook()
         ws = wb.active
@@ -103,18 +103,32 @@ class ExportService:
         
         # Datos
         for socio in socios:
+            # Trabajar con diccionarios
+            categoria = socio.get('categoria', {})
+            categoria_nombre = categoria.get('nombre', 'Sin categoría') if categoria else 'Sin categoría'
+            
+            # Manejo de fecha
+            fecha_alta = socio.get('fecha_alta')
+            if fecha_alta:
+                if isinstance(fecha_alta, str):
+                    fecha_str = fecha_alta
+                else:
+                    fecha_str = fecha_alta.strftime('%d/%m/%Y')
+            else:
+                fecha_str = ""
+            
             ws.append([
-                socio.numero_miembro,
-                socio.dni,
-                socio.nombre_completo,
-                socio.email or "Sin email",
-                socio.telefono or "Sin teléfono",
-                socio.categoria.nombre if socio.categoria else "Sin categoría",
-                f"${socio.categoria.cuota_mensual:,.2f}" if socio.categoria else "$0.00",
-                socio.estado,
-                socio.fecha_alta.strftime('%d/%m/%Y') if socio.fecha_alta else "",
-                f"${socio.deuda_actual:,.2f}" if hasattr(socio, 'deuda_actual') else "$0.00",
-                socio.dias_mora if hasattr(socio, 'dias_mora') else 0
+                socio.get('numero_miembro', ''),
+                socio.get('numero_documento', ''),
+                socio.get('nombre_completo', ''),
+                socio.get('email', 'Sin email') or 'Sin email',
+                socio.get('telefono', 'Sin teléfono') or 'Sin teléfono',
+                categoria_nombre,
+                "$0.00",  # Cuota mensual (no disponible en dict actual)
+                socio.get('estado', ''),
+                fecha_str,
+                f"${socio.get('saldo_cuenta', 0):,.2f}",
+                0  # Días mora (requiere cálculo)
             ])
         
         # Aplicar estilos
@@ -132,16 +146,16 @@ class ExportService:
         return buffer
     
     @staticmethod
-    def generar_excel_pagos(pagos: List[Pago], db: Session) -> bytes:
+    def exportar_pagos_excel(pagos: List[dict], db: Session = None) -> BytesIO:
         """
-        Generar archivo Excel con listado de pagos
+        Exportar listado de pagos a Excel
         
         Args:
-            pagos: Lista de objetos Pago
-            db: Sesión de base de datos
+            pagos: Lista de diccionarios con datos de pagos
+            db: Sesión de base de datos (opcional, para compatibilidad)
         
         Returns:
-            bytes: Archivo Excel en formato bytes
+            BytesIO: Archivo Excel como objeto BytesIO
         """
         wb = Workbook()
         ws = wb.active
@@ -166,38 +180,39 @@ class ExportService:
         # Datos
         total_monto = 0
         for pago in pagos:
-            # Cargar relaciones si es necesario
-            if hasattr(pago, 'miembro') and pago.miembro:
-                nombre_socio = pago.miembro.nombre_completo
-                numero_socio = pago.miembro.numero_miembro
-            else:
-                nombre_socio = "N/A"
-                numero_socio = "N/A"
+            # Trabajar con diccionarios
+            miembro = pago.get('miembro', {}) if isinstance(pago, dict) else None
+            numero_socio = miembro.get('numero_miembro', 'N/A') if miembro else 'N/A'
+            nombre_socio = pago.get('nombre_miembro', 'N/A')
             
             registrado_por = "Sistema"
-            if hasattr(pago, 'usuario') and pago.usuario:
-                registrado_por = pago.usuario.username
             
-            mes_anio = ""
-            if pago.mes and pago.anio:
-                mes_anio = f"{pago.mes:02d}/{pago.anio}"
+            # Manejo de fecha
+            fecha_pago = pago.get('fecha_pago')
+            if fecha_pago:
+                if isinstance(fecha_pago, str):
+                    fecha_str = fecha_pago
+                else:
+                    fecha_str = fecha_pago.strftime('%d/%m/%Y %H:%M')
+            else:
+                fecha_str = ""
             
             ws.append([
-                pago.id,
-                pago.fecha_pago.strftime('%d/%m/%Y %H:%M') if pago.fecha_pago else "",
+                pago.get('id', ''),
+                fecha_str,
                 numero_socio,
                 nombre_socio,
-                pago.concepto or "Cuota mensual",
-                f"${pago.monto:,.2f}",
-                pago.metodo_pago,
-                pago.estado,
-                mes_anio,
+                pago.get('concepto', 'Cuota mensual'),
+                f"${pago.get('monto', 0):,.2f}",
+                pago.get('metodo_pago', ''),
+                pago.get('estado', ''),
+                "",  # mes_anio (opcional)
                 registrado_por,
-                pago.observaciones or ""
+                pago.get('observaciones', '')
             ])
             
-            if pago.estado != "ANULADO":
-                total_monto += pago.monto
+            if pago.get('estado') != "ANULADO":
+                total_monto += pago.get('monto', 0)
         
         # Fila de total
         ws.append([])
@@ -222,15 +237,15 @@ class ExportService:
         return buffer
     
     @staticmethod
-    def generar_excel_morosidad(morosos: List[dict]) -> bytes:
+    def exportar_morosidad_excel(morosos: List[dict]) -> BytesIO:
         """
-        Generar archivo Excel con reporte de morosidad
+        Exportar reporte de morosidad a Excel
         
         Args:
             morosos: Lista de diccionarios con datos de morosos
         
         Returns:
-            bytes: Archivo Excel en formato bytes
+            BytesIO: Archivo Excel como objeto BytesIO
         """
         wb = Workbook()
         ws = wb.active
@@ -328,15 +343,15 @@ class ExportService:
         return buffer
     
     @staticmethod
-    def generar_excel_accesos(accesos: List[dict]) -> bytes:
+    def exportar_accesos_excel(accesos: List[dict]) -> BytesIO:
         """
-        Generar archivo Excel con historial de accesos
+        Exportar historial de accesos a Excel
         
         Args:
             accesos: Lista de diccionarios con datos de accesos
         
         Returns:
-            bytes: Archivo Excel en formato bytes
+            BytesIO: Archivo Excel como objeto BytesIO
         """
         wb = Workbook()
         ws = wb.active
