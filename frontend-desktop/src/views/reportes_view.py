@@ -5,6 +5,7 @@ frontend-desktop/src/views/reportes_view.py
 import flet as ft
 from src.services.api_client import api_client
 from datetime import date, datetime, timedelta
+import asyncio
 
 
 class ReportesView(ft.Column):
@@ -362,15 +363,142 @@ class ReportesView(ft.Column):
         self.reporte_container.update()
     
     def load_reporte_accesos(self):
-        """Cargar reporte de accesos"""
-        self.reporte_container.content = ft.Column(
-            [
-                ft.Text("Reporte de Accesos", size=20, weight=ft.FontWeight.BOLD),
-                ft.Divider(),
-                ft.Text("Próximamente", size=16, color=ft.Colors.GREY_600),
-            ]
-        )
-        self.reporte_container.update()
+        """Cargar reporte de accesos completo"""
+        async def load_data():
+            try:
+                # Obtener estadísticas y resumen
+                estadisticas = await api_client.obtener_estadisticas_accesos()
+                resumen = await api_client.obtener_resumen_accesos()
+                
+                # Obtener historial reciente (últimos 50)
+                historial = await api_client.obtener_historial_accesos(
+                    page=1,
+                    page_size=50
+                )
+                
+                # Crear contenido del reporte
+                self.reporte_container.content = ft.Column(
+                    [
+                        # Título
+                        ft.Row(
+                            [
+                                ft.Text(
+                                    "📊 Reporte de Accesos",
+                                    size=24,
+                                    weight=ft.FontWeight.BOLD
+                                ),
+                                ft.Container(expand=True),
+                                ft.ElevatedButton(
+                                    "Exportar a Excel",
+                                    icon=ft.icons.FILE_DOWNLOAD,
+                                    on_click=lambda _: self.exportar_accesos_excel()
+                                ),
+                            ]
+                        ),
+                        
+                        ft.Divider(),
+                        
+                        # Cards de estadísticas
+                        ft.Text("Estadísticas del Día", size=18, weight=ft.FontWeight.BOLD),
+                        ft.Row(
+                            [
+                                self._create_stat_box(
+                                    "Total Hoy",
+                                    str(estadisticas.get("total_hoy", 0)),
+                                    ft.icons.PEOPLE,
+                                    ft.Colors.BLUE
+                                ),
+                                self._create_stat_box(
+                                    "Permitidos",
+                                    str(estadisticas.get("entradas_hoy", 0)),
+                                    ft.icons.CHECK_CIRCLE,
+                                    ft.Colors.GREEN
+                                ),
+                                self._create_stat_box(
+                                    "Rechazados",
+                                    str(estadisticas.get("rechazos_hoy", 0)),
+                                    ft.icons.CANCEL,
+                                    ft.Colors.RED
+                                ),
+                                self._create_stat_box(
+                                    "Advertencias",
+                                    str(estadisticas.get("advertencias_hoy", 0)),
+                                    ft.icons.WARNING,
+                                    ft.Colors.ORANGE
+                                ),
+                            ],
+                            spacing=10,
+                        ),
+                        
+                        ft.Container(height=20),
+                        
+                        # Resumen por período
+                        ft.Text("Resumen por Período", size=18, weight=ft.FontWeight.BOLD),
+                        ft.Row(
+                            [
+                                self._create_info_card(
+                                    "Esta Semana",
+                                    str(resumen.get("semana", 0)),
+                                    ft.icons.DATE_RANGE,
+                                    ft.Colors.PURPLE
+                                ),
+                                self._create_info_card(
+                                    "Este Mes",
+                                    str(resumen.get("mes", 0)),
+                                    ft.icons.CALENDAR_MONTH,
+                                    ft.Colors.INDIGO
+                                ),
+                                self._create_info_card(
+                                    "Promedio/Hora",
+                                    f"{estadisticas.get('promedio_por_hora', 0):.1f}",
+                                    ft.icons.SCHEDULE,
+                                    ft.Colors.TEAL
+                                ),
+                            ],
+                            spacing=10,
+                        ),
+                        
+                        ft.Container(height=20),
+                        
+                        # Gráfico de accesos por hora
+                        ft.Text("Accesos por Hora (Hoy)", size=18, weight=ft.FontWeight.BOLD),
+                        self._create_accesos_chart(estadisticas.get("accesos_por_hora", [])),
+                        
+                        ft.Container(height=20),
+                        
+                        # Historial reciente
+                        ft.Text("Historial Reciente", size=18, weight=ft.FontWeight.BOLD),
+                        self._create_historial_accesos_table(historial.get("items", [])),
+                        
+                        # Filtros (para futuras mejoras)
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(ft.icons.INFO_OUTLINE, color=ft.Colors.BLUE),
+                                    ft.Text(
+                                        "Mostrando últimos 50 accesos. "
+                                        "Use 'Exportar a Excel' para reporte completo.",
+                                        size=12,
+                                        color=ft.Colors.GREY_600
+                                    ),
+                                ],
+                                spacing=5
+                            ),
+                            padding=10,
+                            bgcolor=ft.Colors.BLUE_50,
+                            border_radius=5,
+                        ),
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10
+                )
+                
+                self.reporte_container.update()
+                
+            except Exception as e:
+                self.show_snackbar(f"Error al cargar accesos: {str(e)}", error=True)
+        
+        self.page.run_task(load_data)
     
     def _create_stat_box(self, title: str, value: str, icon, color):
         """Crear caja de estadística"""
@@ -905,3 +1033,221 @@ class ReportesView(ft.Column):
         self.page.overlay.append(config_dialog)
         config_dialog.open = True
         self.page.update()
+    
+    def _create_info_card(self, title: str, value: str, icon, color):
+        """Crear card de información"""
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=30, color=color),
+                    ft.Column(
+                        [
+                            ft.Text(title, size=12, color=ft.Colors.GREY_600),
+                            ft.Text(value, size=20, weight=ft.FontWeight.BOLD),
+                        ],
+                        spacing=2
+                    ),
+                ],
+                spacing=10
+            ),
+            padding=15,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+            expand=True
+        )
+    
+    def _create_accesos_chart(self, accesos_por_hora: list):
+        """Crear gráfico de accesos por hora"""
+        if not accesos_por_hora:
+            return ft.Text("No hay datos", color=ft.Colors.GREY_600)
+        
+        # Encontrar el máximo para escalar
+        max_accesos = max([h.get("cantidad", 0) for h in accesos_por_hora], default=1)
+        
+        # Crear barras
+        bars = []
+        for hora_data in accesos_por_hora:
+            hora = hora_data.get("hora", "00:00")
+            cantidad = hora_data.get("cantidad", 0)
+            
+            # Solo mostrar horas con actividad o cada 3 horas
+            hora_num = int(hora.split(":")[0])
+            if cantidad > 0 or hora_num % 3 == 0:
+                # Altura relativa
+                altura = max(20, (cantidad / max_accesos * 200)) if max_accesos > 0 else 20
+                
+                bars.append(
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Container(
+                                    content=ft.Text(
+                                        str(cantidad) if cantidad > 0 else "",
+                                        size=10,
+                                        weight=ft.FontWeight.BOLD
+                                    ),
+                                    alignment=ft.alignment.center
+                                ),
+                                ft.Container(
+                                    bgcolor=ft.Colors.BLUE_400 if cantidad > 0 else ft.Colors.GREY_300,
+                                    height=altura,
+                                    width=30,
+                                    border_radius=3,
+                                ),
+                                ft.Text(hora, size=9, color=ft.Colors.GREY_600),
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=2
+                        ),
+                        padding=2
+                    )
+                )
+        
+        return ft.Container(
+            content=ft.Row(
+                bars,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=5
+            ),
+            padding=10,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=5,
+            bgcolor=ft.Colors.WHITE,
+            height=280
+        )
+    
+    def _create_historial_accesos_table(self, accesos: list):
+        """Crear tabla de historial de accesos"""
+        if not accesos:
+            return ft.Text("No hay accesos registrados", color=ft.Colors.GREY_600)
+        
+        table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fecha/Hora")),
+                ft.DataColumn(ft.Text("Socio")),
+                ft.DataColumn(ft.Text("N° Socio")),
+                ft.DataColumn(ft.Text("Tipo")),
+                ft.DataColumn(ft.Text("Resultado")),
+                ft.DataColumn(ft.Text("Ubicación")),
+            ],
+            rows=[],
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=5,
+        )
+        
+        for acceso in accesos[:30]:  # Limitar a 30
+            # Formatear fecha
+            try:
+                fecha_str = acceso.get("fecha_hora", "")
+                if "T" in fecha_str:
+                    fecha_obj = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+                    fecha_formateada = fecha_obj.strftime("%d/%m %H:%M")
+                else:
+                    fecha_formateada = fecha_str[:16]
+            except:
+                fecha_formateada = fecha_str[:16] if fecha_str else "-"
+            
+            # Color según resultado
+            resultado = acceso.get("resultado", "")
+            if resultado == "permitido":
+                color_resultado = ft.Colors.GREEN
+                icon_resultado = "✓"
+            elif resultado == "rechazado":
+                color_resultado = ft.Colors.RED
+                icon_resultado = "✗"
+            else:  # advertencia
+                color_resultado = ft.Colors.ORANGE
+                icon_resultado = "⚠"
+            
+            table.rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(fecha_formateada, size=12)),
+                        ft.DataCell(
+                            ft.Text(
+                                acceso.get("nombre_miembro", "Desconocido"),
+                                size=12
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.Text(
+                                acceso.get("numero_miembro", "-"),
+                                size=12,
+                                weight=ft.FontWeight.BOLD
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.Text(
+                                acceso.get("tipo_acceso", "").upper(),
+                                size=11
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.Row(
+                                [
+                                    ft.Text(icon_resultado, color=color_resultado),
+                                    ft.Text(
+                                        resultado.capitalize(),
+                                        size=12,
+                                        color=color_resultado,
+                                        weight=ft.FontWeight.BOLD
+                                    )
+                                ],
+                                spacing=3
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.Text(
+                                acceso.get("ubicacion", "-"),
+                                size=11,
+                                color=ft.Colors.GREY_600
+                            )
+                        ),
+                    ]
+                )
+            )
+        
+        return ft.Container(
+            content=ft.Column(
+                [
+                    table,
+                    ft.Text(
+                        f"Mostrando {min(30, len(accesos))} de {len(accesos)} accesos",
+                        size=11,
+                        color=ft.Colors.GREY_600
+                    ) if len(accesos) > 30 else None
+                ],
+                spacing=5
+            ),
+            padding=10,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=5,
+            bgcolor=ft.Colors.WHITE,
+        )
+    
+    async def exportar_accesos_excel(self):
+        """Exportar accesos a Excel"""
+        try:
+            # Obtener datos del backend
+            excel_bytes = await api_client.exportar_accesos_excel()
+            
+            # Guardar archivo usando FilePicker
+            filename = f"accesos_{date.today().strftime('%Y%m%d')}.xlsx"
+            
+            save_file_picker = ft.FilePicker(
+                on_result=lambda e: self.on_export_save(e, excel_bytes)
+            )
+            self.page.overlay.append(save_file_picker)
+            self.page.update()
+            
+            save_file_picker.save_file(
+                file_name=filename,
+                allowed_extensions=["xlsx"],
+                dialog_title="Guardar reporte de accesos"
+            )
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.show_snackbar(f"Error al exportar: {str(e)}", error=True)

@@ -2,7 +2,8 @@
 Router de Reportes y Estadísticas
 backend/app/routers/reportes.py
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, extract, case
 from datetime import date, datetime, timedelta
@@ -16,6 +17,7 @@ from app.models.acceso import Acceso, ResultadoAcceso
 from app.models.usuario import Usuario
 from app.utils.dependencies import get_current_user
 from app.schemas.common import MessageResponse
+from app.services.export_service import ExportService
 
 logger = logging.getLogger(__name__)
 
@@ -671,6 +673,63 @@ async def exportar_morosidad_excel(
         
     except Exception as e:
         logger.error(f"Error exportando morosidad: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar: {str(e)}"
+        )
+
+
+@router.get("/exportar/accesos/excel")
+async def exportar_accesos_excel(
+    fecha_inicio: Optional[str] = Query(None),
+    fecha_fin: Optional[str] = Query(None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exportar accesos a Excel
+    """
+    try:
+        # Construir query
+        query = db.query(Acceso)
+        
+        if fecha_inicio:
+            query = query.filter(Acceso.fecha_hora >= fecha_inicio)
+        
+        if fecha_fin:
+            query = query.filter(Acceso.fecha_hora <= fecha_fin)
+        
+        accesos = query.order_by(Acceso.fecha_hora.desc()).all()
+        
+        # Convertir a diccionarios
+        accesos_data = []
+        for acceso in accesos:
+            miembro = db.query(Miembro).filter(Miembro.id == acceso.miembro_id).first()
+            accesos_data.append({
+                "fecha_hora": acceso.fecha_hora,
+                "nombre_miembro": miembro.nombre_completo if miembro else "Desconocido",
+                "numero_miembro": miembro.numero_miembro if miembro else "",
+                "tipo_acceso": acceso.tipo_acceso.value,
+                "resultado": acceso.resultado.value,
+                "ubicacion": acceso.ubicacion,
+                "mensaje": acceso.mensaje,
+                "estado_snapshot": acceso.estado_miembro_snapshot,
+                "saldo_snapshot": acceso.saldo_cuenta_snapshot
+            })
+        
+        # Generar Excel
+        excel_file = ExportService.exportar_accesos_excel(accesos_data)
+        
+        filename = f"accesos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exportando accesos: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al exportar: {str(e)}"

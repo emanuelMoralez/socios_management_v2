@@ -458,6 +458,98 @@ class APIClient:
             Resultado del test
         """
         return await self._request("GET", "notificaciones/test-email", timeout=30)
+    
+    # ==================== ACCESOS ====================
+    
+    async def obtener_historial_accesos(
+        self,
+        miembro_id: Optional[int] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+        resultado: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Obtener historial de accesos con filtros
+        
+        Args:
+            miembro_id: Filtrar por miembro
+            fecha_inicio: Fecha inicio (ISO format)
+            fecha_fin: Fecha fin (ISO format)
+            resultado: Filtrar por resultado (permitido, rechazado, advertencia)
+            page: Número de página
+            page_size: Cantidad de items por página
+        
+        Returns:
+            Respuesta paginada con accesos
+        """
+        params = {
+            "page": page,
+            "page_size": page_size
+        }
+        if miembro_id:
+            params["miembro_id"] = miembro_id
+        if fecha_inicio:
+            params["fecha_inicio"] = fecha_inicio
+        if fecha_fin:
+            params["fecha_fin"] = fecha_fin
+        if resultado:
+            params["resultado"] = resultado
+        
+        return await self._request(
+            "GET",
+            "accesos/historial",
+            params=params,
+            timeout=30
+        )
+    
+    async def obtener_resumen_accesos(self) -> Dict[str, Any]:
+        """
+        Obtener resumen de accesos (hoy, semana, mes)
+        
+        Returns:
+            Resumen con estadísticas
+        """
+        return await self._request("GET", "accesos/resumen", timeout=30)
+    
+    async def obtener_estadisticas_accesos(self) -> Dict[str, Any]:
+        """
+        Obtener estadísticas detalladas de accesos del día
+        
+        Returns:
+            Estadísticas con accesos por hora
+        """
+        return await self._request("GET", "accesos/estadisticas", timeout=30)
+    
+    async def exportar_accesos_excel(
+        self,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None
+    ) -> bytes:
+        """
+        Exportar accesos a Excel
+        
+        Args:
+            fecha_inicio: Fecha inicio (ISO format)
+            fecha_fin: Fecha fin (ISO format)
+        
+        Returns:
+            bytes: Archivo Excel en bytes
+        """
+        params = {}
+        if fecha_inicio:
+            params["fecha_inicio"] = fecha_inicio
+        if fecha_fin:
+            params["fecha_fin"] = fecha_fin
+        
+        return await self._request(
+            "GET",
+            "reportes/exportar/accesos/excel",
+            response_type="bytes",
+            timeout=60,
+            params=params
+        )
 
 
 # Instancia global
