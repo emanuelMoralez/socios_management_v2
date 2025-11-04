@@ -4,6 +4,8 @@ frontend-desktop/src/views/reportes_view.py
 """
 import flet as ft
 from src.services.api_client import api_client
+from src.utils.error_handler import handle_api_error_with_banner, show_success
+from src.components.error_banner import ErrorBanner, SuccessBanner
 from datetime import date, datetime, timedelta
 import asyncio
 
@@ -367,11 +369,11 @@ class ReportesView(ft.Column):
         async def load_data():
             try:
                 # Obtener estadísticas y resumen
-                estadisticas = await api_client.obtener_estadisticas_accesos()
-                resumen = await api_client.obtener_resumen_accesos()
+                estadisticas = await api_client.get_estadisticas_accesos()
+                resumen = await api_client.get_resumen_accesos()
                 
                 # Obtener historial reciente (últimos 50)
-                historial = await api_client.obtener_historial_accesos(
+                historial = await api_client.get_accesos(
                     page=1,
                     page_size=50
                 )
@@ -822,6 +824,10 @@ class ReportesView(ft.Column):
     async def enviar_recordatorios_masivos(self):
         """Enviar recordatorios de cuota masivos"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         # Campos de configuración
         solo_morosos = ft.Checkbox(
             label="Solo socios en estado MOROSO",
@@ -837,11 +843,26 @@ class ReportesView(ft.Column):
         )
         
         async def confirmar_envio(e):
+            """Confirmar y validar antes de enviar recordatorios"""
             try:
-                dias_mora = int(dias_mora_field.value or 5)
+                error_banner.hide()
+                success_banner.hide()
                 
+                # Validación 1: Campo días de mora requerido
+                if not dias_mora_field.value or not dias_mora_field.value.strip():
+                    error_banner.show_error('Los días mínimos de mora son obligatorios')
+                    return
+                
+                # Validación 2: Debe ser numérico
+                try:
+                    dias_mora = int(dias_mora_field.value.strip())
+                except ValueError:
+                    error_banner.show_error('Los días de mora deben ser un número entero válido')
+                    return
+                
+                # Validación 3: Debe ser positivo
                 if dias_mora < 0:
-                    self.show_snackbar("Los días de mora deben ser positivos", error=True)
+                    error_banner.show_error('Los días de mora deben ser un número positivo (0 o mayor)')
                     return
                 
                 # Confirmar acción
@@ -870,12 +891,15 @@ class ReportesView(ft.Column):
                     ]
                 )
                 
+                # Cerrar diálogo de configuración si las validaciones pasaron
+                config_dialog.open = False
+                
                 self.page.overlay.append(confirmar_dialog)
                 confirmar_dialog.open = True
                 self.page.update()
                 
-            except ValueError:
-                self.show_snackbar("Ingresa un número válido de días", error=True)
+            except Exception as ex:
+                handle_api_error_with_banner(ex, error_banner, 'validar la configuración')
         
         async def procesar_envio(confirmar_dialog):
             # Cerrar diálogo de confirmación
@@ -977,6 +1001,8 @@ class ReportesView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        error_banner,
+                        success_banner,
                         ft.Container(
                             content=ft.Text(
                                 "ℹ️ Esta función enviará recordatorios de cuota por email "

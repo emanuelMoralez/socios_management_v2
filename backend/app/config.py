@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "tu-clave-secreta-super-segura-cambiala-en-produccion"
     QR_SECRET_KEY: str = "clave-para-qr-cambiala-tambien"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # ==================== ORGANIZACIÓN ====================

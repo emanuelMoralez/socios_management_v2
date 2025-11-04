@@ -13,6 +13,41 @@ API_URL = os.getenv("API_URL", "http://localhost:8000/api")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))
 
 
+# ==================== EXCEPCIONES PERSONALIZADAS ====================
+
+class APIException(Exception):
+    """Excepción base para errores de API"""
+    def __init__(self, message: str, status_code: int = None, details: Any = None):
+        self.message = message
+        self.status_code = status_code
+        self.details = details
+        super().__init__(message)
+
+
+class AuthenticationError(APIException):
+    """Error de autenticación (401)"""
+    def __init__(self, message: str = "No autenticado", status_code: int = 401, details: Any = None):
+        super().__init__(message, status_code, details)
+
+
+class APITimeoutError(APIException):
+    """Error de timeout"""
+    def __init__(self, message: str = "Timeout", status_code: int = None, details: Any = None):
+        super().__init__(message, status_code, details)
+
+
+class ValidationError(APIException):
+    """Error de validación (422)"""
+    def __init__(self, message: str = "Datos inválidos", status_code: int = 422, details: Any = None):
+        super().__init__(message, status_code, details)
+
+
+class NotFoundError(APIException):
+    """Recurso no encontrado (404)"""
+    def __init__(self, message: str = "No encontrado", status_code: int = 404, details: Any = None):
+        super().__init__(message, status_code, details)
+
+
 class APIClient:
     """Cliente para consumir la API del backend"""
     
@@ -35,6 +70,7 @@ class APIClient:
         endpoint: str,
         response_type: str = "json",
         timeout: Optional[int] = None,
+        retry_auth: bool = True,
         **kwargs
     ) -> Union[Dict[str, Any], list, bytes]:
         """
@@ -45,10 +81,18 @@ class APIClient:
             endpoint: Ruta del endpoint (sin base_url)
             response_type: "json" o "bytes"
             timeout: Timeout personalizado (usa self.timeout por defecto)
+            retry_auth: Si True, intenta renovar token en caso de 401
             **kwargs: Argumentos adicionales para httpx (params, json, etc.)
         
         Returns:
             Respuesta en formato JSON o bytes
+        
+        Raises:
+            AuthenticationError: Token expirado o inválido
+            ValidationError: Datos inválidos (422)
+            NotFoundError: Recurso no encontrado (404)
+            APITimeoutError: Timeout de petición
+            APIException: Otros errores de API
         """
         if timeout is None:
             timeout = self.timeout
@@ -60,21 +104,64 @@ class APIClient:
             kwargs['headers'] = {}
         kwargs['headers'].update(self._get_headers())
         
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(method, url, **kwargs)
-            
-            # Manejo de errores de autenticación
-            if response.status_code == 401:
-                self.token = None
-                raise Exception("Sesión expirada. Por favor inicia sesión nuevamente.")
-            
-            response.raise_for_status()
-            
-            # Retornar según tipo de respuesta
-            if response_type == "bytes":
-                return response.content
-            else:
-                return response.json()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.request(method, url, **kwargs)
+                
+                # Manejo de errores de autenticación con auto-refresh
+                if response.status_code == 401 and retry_auth and self.refresh_token:
+                    try:
+                        # Intentar renovar token
+                        await self.refresh_access_token()
+                        # Reintentar request original (sin retry para evitar loop infinito)
+                        return await self._request(
+                            method, endpoint, response_type, timeout, 
+                            retry_auth=False, **kwargs
+                        )
+                    except Exception:
+                        # Si falla el refresh, limpiar tokens y lanzar error
+                        self.token = None
+                        self.refresh_token = None
+                        raise AuthenticationError("Sesión expirada. Por favor inicia sesión nuevamente.")
+                
+                # Si es 401 sin refresh token o retry ya intentado
+                if response.status_code == 401:
+                    self.token = None
+                    self.refresh_token = None
+                    raise AuthenticationError("Sesión expirada. Por favor inicia sesión nuevamente.")
+                
+                # Manejo de otros códigos de error
+                if response.status_code == 404:
+                    raise NotFoundError(f"Recurso no encontrado: {endpoint}")
+                
+                if response.status_code == 422:
+                    error_detail = response.json()
+                    raise ValidationError(
+                        message="Datos inválidos",
+                        status_code=422,
+                        details=error_detail
+                    )
+                
+                # Para otros errores, usar raise_for_status de httpx
+                response.raise_for_status()
+                
+                # Retornar según tipo de respuesta
+                if response_type == "bytes":
+                    return response.content
+                else:
+                    return response.json()
+        
+        except httpx.TimeoutException as e:
+            raise APITimeoutError(f"La petición excedió el tiempo límite de {timeout}s")
+        except (AuthenticationError, ValidationError, NotFoundError, APITimeoutError):
+            # Re-lanzar excepciones personalizadas
+            raise
+        except httpx.HTTPStatusError as e:
+            # Otros errores HTTP
+            raise APIException(f"Error HTTP {e.response.status_code}: {e.response.text}")
+        except Exception as e:
+            # Errores de red u otros
+            raise APIException(f"Error de comunicación con la API: {str(e)}")
     
     # ==================== AUTENTICACIÓN ====================
     
@@ -94,6 +181,31 @@ class APIClient:
             self.refresh_token = data.get("refresh_token")
             
             return data
+    
+    async def refresh_access_token(self) -> None:
+        """
+        Renovar access token usando refresh token
+        
+        Raises:
+            AuthenticationError: Si el refresh token es inválido o expiró
+        """
+        if not self.refresh_token:
+            raise AuthenticationError("No hay refresh token disponible")
+        
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/auth/refresh",
+                json={"refresh_token": self.refresh_token}
+            )
+            
+            if response.status_code != 200:
+                raise AuthenticationError("No se pudo renovar el token")
+            
+            data = response.json()
+            self.token = data.get("access_token")
+            # Actualizar refresh token si viene uno nuevo
+            if data.get("refresh_token"):
+                self.refresh_token = data.get("refresh_token")
     
     async def get_current_user(self) -> Dict[str, Any]:
         """Obtener usuario actual"""
@@ -138,9 +250,41 @@ class APIClient:
         """Eliminar miembro"""
         return await self._request("DELETE", f"miembros/{miembro_id}")
     
+    async def cambiar_estado_miembro(
+        self,
+        miembro_id: int,
+        nuevo_estado: str,
+        motivo: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Cambiar estado de un miembro (activo, inactivo, suspendido, baja)
+        
+        Args:
+            miembro_id: ID del miembro
+            nuevo_estado: Nuevo estado (activo, inactivo, suspendido, baja)
+            motivo: Motivo del cambio (opcional)
+        
+        Returns:
+            Miembro actualizado
+        """
+        data = {"nuevo_estado": nuevo_estado}
+        if motivo:
+            data["motivo"] = motivo
+        
+        return await self._request("POST", f"miembros/{miembro_id}/cambiar-estado", json=data)
+    
     async def get_miembro_qr(self, miembro_id: int) -> bytes:
         """Descargar imagen QR del miembro"""
         return await self._request("GET", f"miembros/{miembro_id}/qr-image", response_type="bytes")
+    
+    async def get_miembro_estado_financiero(self, miembro_id: int) -> Dict[str, Any]:
+        """
+        Obtener estado financiero detallado de un miembro
+        
+        Returns:
+            Dict con saldo, última cuota, días de mora, etc.
+        """
+        return await self._request("GET", f"miembros/{miembro_id}/estado-financiero")
     
     # ==================== CATEGORÍAS ====================
     
@@ -240,18 +384,45 @@ class APIClient:
         self,
         page: int = 1,
         page_size: int = 20,
-        miembro_id: Optional[int] = None
+        miembro_id: Optional[int] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+        resultado: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Obtener historial de accesos"""
+        """
+        Obtener historial de accesos con filtros completos
+        
+        Args:
+            page: Número de página
+            page_size: Items por página
+            miembro_id: Filtrar por miembro específico
+            fecha_inicio: Fecha inicio (ISO format YYYY-MM-DD)
+            fecha_fin: Fecha fin (ISO format YYYY-MM-DD)
+            resultado: Filtrar por resultado (permitido, rechazado, advertencia)
+        
+        Returns:
+            Respuesta paginada con historial de accesos
+        """
         params = {"page": page, "page_size": page_size}
         if miembro_id:
             params["miembro_id"] = miembro_id
+        if fecha_inicio:
+            params["fecha_inicio"] = fecha_inicio
+        if fecha_fin:
+            params["fecha_fin"] = fecha_fin
+        if resultado:
+            params["resultado"] = resultado
         
         return await self._request("GET", "accesos/historial", params=params)
     
     async def get_resumen_accesos(self) -> Dict[str, Any]:
-        """Obtener resumen de accesos"""
-        return await self._request("GET", "accesos/resumen")
+        """
+        Obtener resumen de accesos (hoy, semana, mes)
+        
+        Returns:
+            Resumen con totales por período
+        """
+        return await self._request("GET", "accesos/resumen", timeout=30)
     
     async def validar_acceso_qr(
         self,
@@ -259,7 +430,17 @@ class APIClient:
         ubicacion: Optional[str] = None,
         dispositivo_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Validar acceso mediante código QR"""
+        """
+        Validar acceso mediante código QR
+        
+        Args:
+            qr_code: Código QR escaneado (formato: CLUB-ID-CHECKSUM)
+            ubicacion: Ubicación del acceso (ej: "Puerta Principal")
+            dispositivo_id: ID del dispositivo que registra (opcional)
+        
+        Returns:
+            Resultado de validación con estado (permitido/rechazado) y datos del miembro
+        """
         data = {"qr_code": qr_code}
         if ubicacion:
             data["ubicacion"] = ubicacion
@@ -268,9 +449,39 @@ class APIClient:
         
         return await self._request("POST", "accesos/validar-qr", json=data)
     
+    async def registrar_acceso_manual(
+        self,
+        miembro_id: int,
+        ubicacion: Optional[str] = None,
+        observaciones: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Registrar acceso manual (sin QR, para backup)
+        
+        Args:
+            miembro_id: ID del miembro
+            ubicacion: Ubicación del acceso
+            observaciones: Notas adicionales
+        
+        Returns:
+            Registro de acceso creado
+        """
+        data = {"miembro_id": miembro_id}
+        if ubicacion:
+            data["ubicacion"] = ubicacion
+        if observaciones:
+            data["observaciones"] = observaciones
+        
+        return await self._request("POST", "accesos/manual", json=data)
+    
     async def get_estadisticas_accesos(self) -> Dict[str, Any]:
-        """Obtener estadísticas de accesos del día"""
-        return await self._request("GET", "accesos/estadisticas")
+        """
+        Obtener estadísticas detalladas de accesos del día
+        
+        Returns:
+            Estadísticas con accesos por hora, top socios, etc.
+        """
+        return await self._request("GET", "accesos/estadisticas", timeout=30)
     
     # ==================== USUARIOS ====================
     
@@ -280,8 +491,30 @@ class APIClient:
 
     # ==================== REPORTES ====================
     
+    async def get_dashboard(self) -> Dict[str, Any]:
+        """
+        Obtener datos del dashboard principal con KPIs
+        
+        Returns:
+            Dict con:
+            - total_socios (activos, inactivos, suspendidos)
+            - ingresos_mes
+            - total_morosidad
+            - accesos_hoy
+            - gráficos y tendencias
+        """
+        return await self._request("GET", "reportes/dashboard", timeout=30)
+    
     async def get_reporte_socios(self, **filters) -> Dict[str, Any]:
-        """Obtener reporte de socios"""
+        """
+        Obtener reporte de socios con filtros
+        
+        Args:
+            **filters: estado, categoria_id, fecha_desde, fecha_hasta, etc.
+        
+        Returns:
+            Reporte detallado de socios
+        """
         return await self._request("GET", "reportes/socios", params=filters)
     
     async def get_reporte_financiero(
@@ -289,7 +522,12 @@ class APIClient:
         fecha_desde: Optional[str] = None,
         fecha_hasta: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Obtener reporte financiero"""
+        """
+        Obtener reporte financiero
+        
+        Returns:
+            Ingresos, egresos, balance por período
+        """
         params = {}
         if fecha_desde:
             params["fecha_desde"] = fecha_desde
@@ -299,7 +537,12 @@ class APIClient:
         return await self._request("GET", "reportes/financiero", params=params)
     
     async def get_reporte_morosidad(self) -> Dict[str, Any]:
-        """Obtener reporte de morosidad"""
+        """
+        Obtener reporte de morosidad
+        
+        Returns:
+            Lista de socios morosos con días de mora y montos adeudados
+        """
         return await self._request("GET", "reportes/morosidad")
     
     async def get_reporte_accesos(
@@ -307,7 +550,12 @@ class APIClient:
         fecha_desde: Optional[str] = None,
         fecha_hasta: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Obtener reporte de accesos"""
+        """
+        Obtener reporte de accesos
+        
+        Returns:
+            Estadísticas de accesos por período
+        """
         params = {}
         if fecha_desde:
             params["fecha_desde"] = fecha_desde
@@ -394,6 +642,35 @@ class APIClient:
             timeout=60
         )
     
+    async def exportar_accesos_excel(
+        self,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None
+    ) -> bytes:
+        """
+        Exportar reporte de accesos a Excel
+        
+        Args:
+            fecha_inicio: Fecha inicio (ISO format)
+            fecha_fin: Fecha fin (ISO format)
+        
+        Returns:
+            bytes: Archivo Excel en bytes
+        """
+        params = {}
+        if fecha_inicio:
+            params["fecha_inicio"] = fecha_inicio
+        if fecha_fin:
+            params["fecha_fin"] = fecha_fin
+        
+        return await self._request(
+            "GET",
+            "reportes/exportar/accesos/excel",
+            response_type="bytes",
+            timeout=60,
+            params=params
+        )
+    
     # ==================== NOTIFICACIONES ====================
     
     async def enviar_recordatorio_individual(
@@ -422,6 +699,37 @@ class APIClient:
             timeout=30
         )
     
+    async def preview_morosos(
+        self,
+        solo_morosos: bool = True,
+        dias_mora_minimo: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Vista previa de socios que recibirán recordatorios
+        (útil antes de enviar masivos)
+        
+        Args:
+            solo_morosos: Si True, solo muestra socios morosos
+            dias_mora_minimo: Días mínimos de mora para incluir
+        
+        Returns:
+            Lista de socios con:
+            - datos de contacto
+            - deuda actual
+            - días de mora
+            - si tiene email configurado
+        """
+        params = {
+            "solo_morosos": solo_morosos,
+            "dias_mora_minimo": dias_mora_minimo
+        }
+        return await self._request(
+            "GET",
+            "notificaciones/preview-morosos",
+            params=params,
+            timeout=30
+        )
+    
     async def enviar_recordatorios_masivos(
         self,
         solo_morosos: bool = True,
@@ -435,7 +743,10 @@ class APIClient:
             dias_mora_minimo: Días mínimos de mora para enviar
         
         Returns:
-            Estadísticas de envío (enviados, fallidos)
+            Estadísticas de envío:
+            - total_enviados
+            - total_fallidos
+            - emails_enviados (lista con detalles)
         """
         data = {
             "solo_morosos": solo_morosos,
@@ -452,104 +763,13 @@ class APIClient:
     
     async def test_email_config(self) -> Dict[str, Any]:
         """
-        Probar configuración de email
+        Probar configuración de email (envía un test al admin)
         
         Returns:
-            Resultado del test
+            success: bool - Si el envío fue exitoso
+            message: str - Mensaje descriptivo
         """
         return await self._request("GET", "notificaciones/test-email", timeout=30)
-    
-    # ==================== ACCESOS ====================
-    
-    async def obtener_historial_accesos(
-        self,
-        miembro_id: Optional[int] = None,
-        fecha_inicio: Optional[str] = None,
-        fecha_fin: Optional[str] = None,
-        resultado: Optional[str] = None,
-        page: int = 1,
-        page_size: int = 20
-    ) -> Dict[str, Any]:
-        """
-        Obtener historial de accesos con filtros
-        
-        Args:
-            miembro_id: Filtrar por miembro
-            fecha_inicio: Fecha inicio (ISO format)
-            fecha_fin: Fecha fin (ISO format)
-            resultado: Filtrar por resultado (permitido, rechazado, advertencia)
-            page: Número de página
-            page_size: Cantidad de items por página
-        
-        Returns:
-            Respuesta paginada con accesos
-        """
-        params = {
-            "page": page,
-            "page_size": page_size
-        }
-        if miembro_id:
-            params["miembro_id"] = miembro_id
-        if fecha_inicio:
-            params["fecha_inicio"] = fecha_inicio
-        if fecha_fin:
-            params["fecha_fin"] = fecha_fin
-        if resultado:
-            params["resultado"] = resultado
-        
-        return await self._request(
-            "GET",
-            "accesos/historial",
-            params=params,
-            timeout=30
-        )
-    
-    async def obtener_resumen_accesos(self) -> Dict[str, Any]:
-        """
-        Obtener resumen de accesos (hoy, semana, mes)
-        
-        Returns:
-            Resumen con estadísticas
-        """
-        return await self._request("GET", "accesos/resumen", timeout=30)
-    
-    async def obtener_estadisticas_accesos(self) -> Dict[str, Any]:
-        """
-        Obtener estadísticas detalladas de accesos del día
-        
-        Returns:
-            Estadísticas con accesos por hora
-        """
-        return await self._request("GET", "accesos/estadisticas", timeout=30)
-    
-    async def exportar_accesos_excel(
-        self,
-        fecha_inicio: Optional[str] = None,
-        fecha_fin: Optional[str] = None
-    ) -> bytes:
-        """
-        Exportar accesos a Excel
-        
-        Args:
-            fecha_inicio: Fecha inicio (ISO format)
-            fecha_fin: Fecha fin (ISO format)
-        
-        Returns:
-            bytes: Archivo Excel en bytes
-        """
-        params = {}
-        if fecha_inicio:
-            params["fecha_inicio"] = fecha_inicio
-        if fecha_fin:
-            params["fecha_fin"] = fecha_fin
-        
-        return await self._request(
-            "GET",
-            "reportes/exportar/accesos/excel",
-            response_type="bytes",
-            timeout=60,
-            params=params
-        )
 
 
 # Instancia global

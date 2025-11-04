@@ -4,6 +4,8 @@ frontend-desktop/src/views/usuarios_view.py
 """
 import flet as ft
 from src.services.api_client import api_client
+from src.utils.error_handler import handle_api_error_with_banner, show_success
+from src.components.error_banner import ErrorBanner, SuccessBanner
 
 
 class UsuariosView(ft.Column):
@@ -228,6 +230,10 @@ class UsuariosView(ft.Column):
     def show_nuevo_usuario_dialog(self):
         """Mostrar diálogo para crear usuario"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         # Campos
         username_field = ft.TextField(
             label="Username *",
@@ -270,6 +276,10 @@ class UsuariosView(ft.Column):
         )
         
         async def guardar_usuario(e):
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
+            
             # Validaciones
             if not all([
                 username_field.value,
@@ -278,15 +288,15 @@ class UsuariosView(ft.Column):
                 nombre_field.value,
                 apellido_field.value
             ]):
-                self.show_snackbar("Completa los campos obligatorios (*)", error=True)
+                error_banner.show_error("⚠️ Completa los campos obligatorios (*)")
                 return
             
             if password_field.value != confirm_password_field.value:
-                self.show_snackbar("Las contraseñas no coinciden", error=True)
+                error_banner.show_error("⚠️ Las contraseñas no coinciden")
                 return
             
             if len(password_field.value) < 8:
-                self.show_snackbar("La contraseña debe tener al menos 8 caracteres", error=True)
+                error_banner.show_error("⚠️ La contraseña debe tener al menos 8 caracteres")
                 return
             
             try:
@@ -318,22 +328,29 @@ class UsuariosView(ft.Column):
                         dialogo.open = False
                         self.page.update()
                         
-                        self.show_snackbar("✓ Usuario creado exitosamente")
+                        show_success(self.page, "✓ Usuario creado exitosamente")
                         await self.load_usuarios()
                     else:
-                        # Error
+                        # Error - mostrar en banner
                         try:
                             error_detail = response.json().get("detail", "Error desconocido")
+                            if isinstance(error_detail, list):
+                                # Formato Pydantic
+                                errors = [f"{err.get('loc', [''])[1]}: {err.get('msg', '')}" for err in error_detail]
+                                error_banner.show_errors(errors)
+                            elif isinstance(error_detail, dict):
+                                # Formato dict de campos
+                                error_banner.show_validation_errors(error_detail)
+                            else:
+                                # String simple
+                                error_banner.show_error(f"❌ {error_detail}")
                         except:
-                            error_detail = f"Error HTTP {response.status_code}"
-                        
-                        print(f"[DEBUG] Error del servidor: {error_detail}")
-                        self.show_snackbar(f"Error: {error_detail}", error=True)
+                            error_banner.show_error(f"❌ Error HTTP {response.status_code}")
                 
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "crear usuario")
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -345,6 +362,11 @@ class UsuariosView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Formulario
                         ft.Text("Credenciales", weight=ft.FontWeight.BOLD),
                         username_field,
                         email_field,
@@ -394,6 +416,10 @@ class UsuariosView(ft.Column):
     def show_edit_usuario_dialog(self, usuario: dict):
         """Mostrar diálogo para editar usuario"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         # Extraer nombre y apellido del nombre_completo
         nombre_completo = usuario.get("nombre_completo", "")
         if ", " in nombre_completo:
@@ -424,6 +450,10 @@ class UsuariosView(ft.Column):
         )
         
         async def guardar_cambios(e):
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
+            
             try:
                 data = {
                     "email": email_field.value,
@@ -444,11 +474,11 @@ class UsuariosView(ft.Column):
                 dialogo.open = False
                 self.page.update()
                 
-                self.show_snackbar("✓ Usuario actualizado")
+                show_success(self.page, "✓ Usuario actualizado")
                 await self.load_usuarios()
                 
             except Exception as ex:
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "actualizar usuario")
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -460,12 +490,19 @@ class UsuariosView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Información del usuario
                         ft.Text(
                             f"ID: {usuario.get('id')} | Rol: {usuario.get('rol', '').replace('_', ' ').upper()}",
                             size=12,
                             color=ft.Colors.GREY_600
                         ),
                         ft.Divider(),
+                        
+                        # Formulario
                         email_field,
                         ft.Row([nombre_field, apellido_field], spacing=10),
                         telefono_field,
@@ -493,6 +530,10 @@ class UsuariosView(ft.Column):
     def show_cambiar_rol_dialog(self, usuario: dict):
         """Mostrar diálogo para cambiar rol"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         rol_dropdown = ft.Dropdown(
             label="Nuevo Rol",
             value=usuario.get("rol", ""),
@@ -506,7 +547,34 @@ class UsuariosView(ft.Column):
         )
         
         async def cambiar_rol(e):
+            """Cambia el rol del usuario con validaciones de seguridad"""
             try:
+                error_banner.hide()
+                success_banner.hide()
+                
+                # Validación 1: Rol seleccionado
+                if not rol_dropdown.value or not rol_dropdown.value.strip():
+                    error_banner.show_error('Debe seleccionar un rol')
+                    return
+                
+                # Validación 2: Rol diferente al actual
+                if rol_dropdown.value == usuario.get("rol"):
+                    error_banner.show_validation_errors([
+                        'El nuevo rol debe ser diferente al rol actual'
+                    ])
+                    return
+                
+                # Validación 3: No degradar al único Super Admin (crítico)
+                if usuario.get("rol") == "super_admin" and rol_dropdown.value != "super_admin":
+                    # Verificar si es el único super admin
+                    super_admins = [u for u in self.usuarios if u.get("rol") == "super_admin" and u.get("is_active")]
+                    if len(super_admins) <= 1:
+                        error_banner.show_error(
+                            '⚠️ No se puede cambiar el rol del único Super Admin activo. '
+                            'Debe haber al menos un Super Admin en el sistema.'
+                        )
+                        return
+                
                 data = {
                     "usuario_id": usuario["id"],
                     "nuevo_rol": rol_dropdown.value
@@ -521,14 +589,13 @@ class UsuariosView(ft.Column):
                     )
                     response.raise_for_status()
                 
+                show_success(self.page, f"Rol actualizado a {rol_dropdown.value.replace('_', ' ').title()}")
                 dialogo.open = False
                 self.page.update()
-                
-                self.show_snackbar("✓ Rol actualizado")
                 await self.load_usuarios()
                 
             except Exception as ex:
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, 'cambiar el rol')
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -546,6 +613,8 @@ class UsuariosView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        error_banner,
+                        success_banner,
                         ft.Text(
                             f"Usuario: {usuario.get('nombre_completo', '')}",
                             weight=ft.FontWeight.BOLD

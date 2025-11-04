@@ -4,6 +4,8 @@ frontend-desktop/src/views/categorias_view.py
 """
 import flet as ft
 from src.services.api_client import api_client
+from src.utils.error_handler import handle_api_error_with_banner, show_success
+from src.components.error_banner import ErrorBanner, SuccessBanner
 
 
 class CategoriasView(ft.Column):
@@ -224,7 +226,11 @@ class CategoriasView(ft.Column):
     def show_nueva_categoria_dialog(self):
         """Mostrar diálogo para crear categoría"""
         
-        # Campos
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
+            # Campos
         nombre_field = ft.TextField(
             label="Nombre *",
             hint_text="Ej: Titular, Adherente, Cadete",
@@ -260,22 +266,31 @@ class CategoriasView(ft.Column):
         )
         
         async def guardar_categoria(e):
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
+            
             # Validaciones
-            if not nombre_field.value or not cuota_base_field.value:
-                self.show_snackbar("Completa los campos obligatorios (*)", error=True)
+            if not nombre_field.value:
+                error_banner.show_error("⚠️ El nombre de la categoría es obligatorio")
                 return
             
+            if not cuota_base_field.value:
+                error_banner.show_error("⚠️ La cuota base es obligatoria")
+                return
+            
+            # Validar monto numérico
             try:
                 cuota = float(cuota_base_field.value)
                 if cuota < 0:
-                    raise ValueError("La cuota no puede ser negativa")
+                    error_banner.show_error("⚠️ La cuota no puede ser negativa")
+                    return
             except ValueError:
-                self.show_snackbar("Ingresa un monto válido", error=True)
+                error_banner.show_error("⚠️ Ingresa un monto válido para la cuota")
                 return
             
             try:
                 # Preparar data según el schema del backend
-                # Enviar strings vacíos en lugar de None para campos opcionales
                 data = {
                     "nombre": nombre_field.value.strip(),
                     "descripcion": descripcion_field.value.strip() if descripcion_field.value else "",
@@ -285,40 +300,18 @@ class CategoriasView(ft.Column):
                     "modulo_tipo": "generico"
                 }
                 
-                print(f"[DEBUG] Enviando categoría: {data}")
-                
-                # Llamar al API con manejo de errores mejorado
-                try:
-                    await api_client.create_categoria(data)
-                except Exception as api_error:
-                    # Intentar obtener detalles del error
-                    error_msg = str(api_error)
-                    if hasattr(api_error, 'response'):
-                        try:
-                            error_detail = api_error.response.json()
-                            print(f"[DEBUG] Error detail: {error_detail}")
-                            # Mostrar errores de validación específicos
-                            if isinstance(error_detail, dict) and 'detail' in error_detail:
-                                if isinstance(error_detail['detail'], list):
-                                    errors = [f"{e.get('loc', [''])[1]}: {e.get('msg', '')}" 
-                                             for e in error_detail['detail']]
-                                    error_msg = "\n".join(errors)
-                                else:
-                                    error_msg = error_detail['detail']
-                        except:
-                            pass
-                    raise Exception(error_msg)
+                await api_client.create_categoria(data)
                 
                 dialogo.open = False
                 self.page.update()
                 
-                self.show_snackbar("✓ Categoría creada exitosamente")
+                show_success(self.page, "✓ Categoría creada exitosamente")
                 await self.load_categorias()
                 
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "crear categoría")
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -330,6 +323,11 @@ class CategoriasView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Formulario
                         nombre_field,
                         descripcion_field,
                         ft.Divider(),
@@ -376,6 +374,11 @@ class CategoriasView(ft.Column):
     def show_edit_categoria_dialog(self, categoria: dict):
         """Mostrar diálogo para editar categoría"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
+        
         nombre_field = ft.TextField(
             label="Nombre *",
             value=categoria.get("nombre", "")
@@ -410,48 +413,55 @@ class CategoriasView(ft.Column):
         )
         
         async def guardar_cambios(e):
-            if not nombre_field.value or not cuota_base_field.value:
-                self.show_snackbar("Completa los campos obligatorios (*)", error=True)
-                return
-            
+            """Guarda los cambios realizados en la categoría"""
             try:
-                cuota = float(cuota_base_field.value)
-                if cuota < 0:
-                    raise ValueError("La cuota no puede ser negativa")
-            except ValueError:
-                self.show_snackbar("Ingresa un monto válido", error=True)
-                return
-            
-            try:
-                data = {
-                    "nombre": nombre_field.value,
-                    "descripcion": descripcion_field.value or None,
-                    "cuota_base": cuota,
-                    "tiene_cuota_fija": tiene_cuota_fija.value,
-                    "caracteristicas": caracteristicas_field.value or None
+                error_banner.hide()
+                success_banner.hide()
+                
+                # Validaciones individuales con mensajes específicos
+                if not nombre_field.value or not nombre_field.value.strip():
+                    error_banner.show_error('El nombre de la categoría es obligatorio')
+                    return
+                
+                if not cuota_base_field.value or not cuota_base_field.value.strip():
+                    error_banner.show_error('La cuota base es obligatoria')
+                    return
+                
+                try:
+                    cuota_valor = float(cuota_base_field.value.strip())
+                    if cuota_valor < 0:
+                        error_banner.show_error('La cuota base no puede ser negativa')
+                        return
+                except ValueError:
+                    error_banner.show_error('La cuota base debe ser un número válido')
+                    return
+                
+                # Preparar los datos
+                datos_actualizados = {
+                    'nombre': nombre_field.value.strip(),
+                    'descripcion': descripcion_field.value.strip() if descripcion_field.value else None,
+                    'cuota_base': cuota_valor,
+                    'tiene_cuota_fija': tiene_cuota_fija.value,
+                    'caracteristicas': [c.strip() for c in caracteristicas_field.value.split(',') if c.strip()] if caracteristicas_field.value else []
                 }
                 
-                # Llamar al API
-                import httpx
-                async with httpx.AsyncClient(timeout=30) as client:
-                    response = await client.put(
-                        f"{api_client.base_url}/miembros/categorias/{categoria['id']}",
-                        headers=api_client._get_headers(),
-                        json=data
-                    )
-                    response.raise_for_status()
+                # Actualizar en la API
+                response = await self.api_client.put(
+                    f'/categorias/{categoria["id"]}',
+                    datos_actualizados
+                )
                 
-                dialogo.open = False
-                self.page.update()
-                
-                self.show_snackbar("✓ Categoría actualizada")
-                await self.load_categorias()
-                
+                if response.get('ok'):
+                    show_success(self.page, 'Categoría actualizada exitosamente')
+                    dialog.open = False
+                    await self.page.update_async()
+                    await self.cargar_categorias()
+                else:
+                    error_banner.show_error(response.get('error', 'Error al actualizar la categoría'))
+                    
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
-                self.show_snackbar(f"Error: {ex}", error=True)
-        
+                handle_api_error_with_banner(ex, error_banner, 'actualizar la categoría')
+
         def cerrar_dialogo(e):
             dialogo.open = False
             self.page.update()
@@ -468,6 +478,8 @@ class CategoriasView(ft.Column):
                             color=ft.Colors.GREY_600
                         ),
                         ft.Divider(),
+                        error_banner,
+                        success_banner,
                         nombre_field,
                         descripcion_field,
                         ft.Divider(),

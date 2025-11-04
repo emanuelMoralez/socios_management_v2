@@ -4,6 +4,8 @@ frontend-desktop/src/views/cuotas_view.py
 """
 import flet as ft
 from src.services.api_client import api_client
+from src.utils.error_handler import handle_api_error_with_banner, show_success
+from src.components.error_banner import ErrorBanner, SuccessBanner
 from datetime import date, datetime
 from typing import Optional
 from calendar import month_name
@@ -447,6 +449,10 @@ class CuotasView(ft.Column):
     def show_pago_rapido_dialog(self):
         """Mostrar diálogo de pago rápido"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         # Búsqueda de socio
         socio_seleccionado = {"data": None}
         
@@ -530,7 +536,11 @@ class CuotasView(ft.Column):
         async def buscar_socio(e):
             query = buscar_socio_field.value
             if not query or len(query) < 3:
+                error_banner.show_error("⚠️ Ingresa al menos 3 caracteres para buscar")
                 return
+            
+            # Limpiar banner de error al buscar
+            error_banner.hide()
             
             try:
                 response = await api_client.get_miembros(q=query, page_size=5)
@@ -562,7 +572,7 @@ class CuotasView(ft.Column):
                 resultado_busqueda.update()
                 
             except Exception as ex:
-                self.show_snackbar(f"Error buscando socio: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "buscar socio")
         
         def seleccionar_socio(socio):
             socio_seleccionado["data"] = socio
@@ -588,21 +598,57 @@ class CuotasView(ft.Column):
         buscar_socio_field.on_submit = buscar_socio
         
         async def guardar_pago(e):
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
+            
+            # Validaciones locales
             if not socio_seleccionado["data"]:
-                self.show_snackbar("Debes seleccionar un socio", error=True)
+                error_banner.show_error("⚠️ Debes seleccionar un socio")
                 return
             
             if not monto_field.value:
-                self.show_snackbar("Debes ingresar un monto", error=True)
+                error_banner.show_error("⚠️ Debes ingresar un monto")
+                return
+            
+            # Validar monto numérico
+            try:
+                monto = float(monto_field.value)
+                if monto <= 0:
+                    error_banner.show_error("⚠️ El monto debe ser mayor a cero")
+                    return
+            except ValueError:
+                error_banner.show_error("⚠️ Ingresa un monto válido")
+                return
+            
+            # Validar descuento si está aplicado
+            if aplicar_descuento.value:
+                try:
+                    descuento = float(descuento_field.value) if descuento_field.value else 0
+                    if descuento < 0 or descuento > 100:
+                        error_banner.show_error("⚠️ El descuento debe estar entre 0 y 100%")
+                        return
+                except ValueError:
+                    error_banner.show_error("⚠️ Ingresa un porcentaje de descuento válido")
+                    return
+            
+            # Validar año
+            try:
+                anio = int(anio_field.value)
+                if anio < 2000 or anio > 2100:
+                    error_banner.show_error("⚠️ Ingresa un año válido")
+                    return
+            except ValueError:
+                error_banner.show_error("⚠️ Ingresa un año válido")
                 return
             
             try:
                 data = {
                     "miembro_id": socio_seleccionado["data"]["id"],
-                    "monto": float(monto_field.value),
+                    "monto": monto,
                     "metodo_pago": metodo_dropdown.value,
                     "mes_periodo": int(mes_dropdown.value),
-                    "anio_periodo": int(anio_field.value),
+                    "anio_periodo": anio,
                     "aplicar_descuento": aplicar_descuento.value,
                     "porcentaje_descuento": float(descuento_field.value) if descuento_field.value else 0,
                     "observaciones": observaciones_field.value or None
@@ -613,13 +659,13 @@ class CuotasView(ft.Column):
                 dialogo.open = False
                 self.page.update()
                 
-                self.show_snackbar("✓ Pago registrado exitosamente")
+                show_success(self.page, "✓ Pago registrado exitosamente")
                 await self.load_data()
                 
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "registrar pago")
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -631,6 +677,11 @@ class CuotasView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Formulario
                         ft.Text("Buscar Socio", weight=ft.FontWeight.BOLD),
                         buscar_socio_field,
                         resultado_busqueda,
@@ -669,6 +720,10 @@ class CuotasView(ft.Column):
     
     def show_registrar_pago_dialog(self):
         """Mostrar diálogo de registro de pago completo"""
+        
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
         
         # Búsqueda de socio
         socio_seleccionado = {"data": None}
@@ -796,7 +851,11 @@ class CuotasView(ft.Column):
         async def buscar_socio(e):
             query = buscar_socio_field.value
             if not query or len(query) < 3:
+                error_banner.show_error("⚠️ Ingresa al menos 3 caracteres para buscar")
                 return
+            
+            # Limpiar banner de error al buscar
+            error_banner.hide()
             
             try:
                 response = await api_client.get_miembros(q=query, page_size=5)
@@ -828,7 +887,7 @@ class CuotasView(ft.Column):
                 resultado_busqueda.update()
                 
             except Exception as ex:
-                self.show_snackbar(f"Error buscando socio: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "buscar socio")
         
         def seleccionar_socio(socio):
             socio_seleccionado["data"] = socio
@@ -855,12 +914,55 @@ class CuotasView(ft.Column):
         buscar_socio_field.on_submit = buscar_socio
         
         async def guardar_pago(e):
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
+            
+            # Validaciones locales
             if not socio_seleccionado["data"]:
-                self.show_snackbar("Debes seleccionar un socio", error=True)
+                error_banner.show_error("⚠️ Debes seleccionar un socio")
                 return
             
-            if not monto_field.value or not concepto_field.value:
-                self.show_snackbar("Completa los campos obligatorios", error=True)
+            if not concepto_field.value:
+                error_banner.show_error("⚠️ Debes ingresar un concepto")
+                return
+            
+            if not monto_field.value:
+                error_banner.show_error("⚠️ Debes ingresar un monto")
+                return
+            
+            # Validar montos numéricos
+            try:
+                monto = float(monto_field.value)
+                descuento = float(descuento_field.value or 0)
+                recargo = float(recargo_field.value or 0)
+                
+                if monto <= 0:
+                    error_banner.show_error("⚠️ El monto debe ser mayor a cero")
+                    return
+                
+                if descuento < 0:
+                    error_banner.show_error("⚠️ El descuento no puede ser negativo")
+                    return
+                
+                if recargo < 0:
+                    error_banner.show_error("⚠️ El recargo no puede ser negativo")
+                    return
+                
+                total = monto - descuento + recargo
+                if total <= 0:
+                    error_banner.show_error("⚠️ El monto final debe ser mayor a cero")
+                    return
+                    
+            except ValueError:
+                error_banner.show_error("⚠️ Ingresa valores numéricos válidos")
+                return
+            
+            # Validar fecha
+            try:
+                datetime.fromisoformat(fecha_pago_field.value)
+            except:
+                error_banner.show_error("⚠️ Formato de fecha inválido (debe ser YYYY-MM-DD)")
                 return
             
             try:
@@ -869,9 +971,9 @@ class CuotasView(ft.Column):
                     "tipo": tipo_dropdown.value,
                     "concepto": concepto_field.value,
                     "descripcion": descripcion_field.value or None,
-                    "monto": float(monto_field.value),
-                    "descuento": float(descuento_field.value or 0),
-                    "recargo": float(recargo_field.value or 0),
+                    "monto": monto,
+                    "descuento": descuento,
+                    "recargo": recargo,
                     "metodo_pago": metodo_dropdown.value,
                     "fecha_pago": fecha_pago_field.value,
                     "fecha_periodo": fecha_periodo_field.value or None,
@@ -883,13 +985,13 @@ class CuotasView(ft.Column):
                 dialogo.open = False
                 self.page.update()
                 
-                self.show_snackbar("✓ Pago registrado exitosamente")
+                show_success(self.page, "✓ Pago registrado exitosamente")
                 await self.load_data()
                 
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "registrar pago")
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -901,6 +1003,11 @@ class CuotasView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Formulario
                         ft.Text("Socio", weight=ft.FontWeight.BOLD),
                         buscar_socio_field,
                         resultado_busqueda,
@@ -1090,6 +1197,10 @@ class CuotasView(ft.Column):
     async def show_anular_dialog(self, pago: dict):
         """Mostrar diálogo para anular pago"""
         
+        # Banners de error/éxito para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         motivo_field = ft.TextField(
             label="Motivo de Anulación *",
             hint_text="Explica por qué se anula este pago (mínimo 10 caracteres)",
@@ -1100,8 +1211,23 @@ class CuotasView(ft.Column):
         )
         
         async def confirmar_anulacion(e):
-            if not motivo_field.value or len(motivo_field.value) < 10:
-                self.show_snackbar("El motivo debe tener al menos 10 caracteres", error=True)
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
+            
+            # Validaciones locales
+            if not motivo_field.value:
+                error_banner.show_error("⚠️ Debes ingresar un motivo para la anulación")
+                return
+            
+            if len(motivo_field.value.strip()) < 10:
+                error_banner.show_error("⚠️ El motivo debe tener al menos 10 caracteres")
+                return
+            
+            # Validación adicional: evitar motivos genéricos
+            motivo_lower = motivo_field.value.strip().lower()
+            if motivo_lower in ['sin motivo', 'error', 'anular', 'ninguno', 'na', 'n/a']:
+                error_banner.show_error("⚠️ Por favor, proporciona un motivo más específico")
                 return
             
             try:
@@ -1110,13 +1236,13 @@ class CuotasView(ft.Column):
                 dialogo.open = False
                 self.page.update()
                 
-                self.show_snackbar("✓ Pago anulado correctamente")
+                show_success(self.page, "✓ Pago anulado correctamente")
                 await self.load_data()
                 
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                self.show_snackbar(f"Error: {ex}", error=True)
+                handle_api_error_with_banner(ex, error_banner, "anular pago")
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -1134,6 +1260,11 @@ class CuotasView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Advertencia y datos del pago
                         ft.Text(
                             f"¿Estás seguro de anular el pago {pago.get('numero_comprobante', '')}?",
                             weight=ft.FontWeight.BOLD

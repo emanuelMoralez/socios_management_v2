@@ -4,6 +4,8 @@ frontend-desktop/src/views/socios_view.py
 """
 import flet as ft
 from src.services.api_client import api_client
+from src.utils.error_handler import handle_api_error, show_success, handle_api_error_with_banner
+from src.components.error_banner import ErrorBanner, SuccessBanner
 from datetime import date, datetime
 
 
@@ -491,7 +493,7 @@ class SociosView(ft.Column):
             self.update_pagination(pagination)
             
         except Exception as e:
-            self.show_snackbar(f"Error: {e}", error=True)
+            handle_api_error(self.page, e, "cargar socios")
         
         finally:
             self.loading.visible = False
@@ -612,6 +614,10 @@ class SociosView(ft.Column):
         # Variable para almacenar la foto
         foto_seleccionada = {"data": None, "nombre": None}
         
+        # Banner de error para el diálogo
+        error_banner = ErrorBanner()
+        success_banner = SuccessBanner()
+        
         # Campos del formulario
         nombre_field = ft.TextField(label="Nombre *", autofocus=True, expand=True)
         apellido_field = ft.TextField(label="Apellido *", expand=True)
@@ -648,13 +654,16 @@ class SociosView(ft.Column):
         boton_limpiar_foto = photo["boton_limpiar_foto"]
 
         async def guardar_socio(e):
+            # Limpiar mensajes previos
+            error_banner.hide()
+            success_banner.hide()
             
             if not all([nombre_field.value, apellido_field.value, documento_field.value]):
-                self.show_snackbar("Completa los campos obligatorios (*)", error=True)
+                error_banner.show_error("⚠️ Completa los campos obligatorios (*)")
                 return
             
             if not categoria_dropdown.value:
-                self.show_snackbar("Debes seleccionar una categoría", error=True)
+                error_banner.show_error("⚠️ Debes seleccionar una categoría")
                 return
             
             try:
@@ -683,13 +692,13 @@ class SociosView(ft.Column):
                 dialogo.open = False
                 self.page.update()
                 
-                self.show_snackbar("Socio creado exitosamente")
+                show_success(self.page, "Socio creado exitosamente")
                 await self.load_socios()
                 
             except Exception as e:
-                import traceback
-                traceback.print_exc()
-                self.show_snackbar(f"Error: {e}", error=True)
+                # Usar error handler con banner para mostrar error en el diálogo
+                handle_api_error_with_banner(e, error_banner, "crear socio")
+                # NO cerrar el diálogo para que el usuario pueda corregir
         
         def cerrar_dialogo(e):
             dialogo.open = False
@@ -701,6 +710,11 @@ class SociosView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
+                        # Banners para mensajes en el diálogo
+                        error_banner,
+                        success_banner,
+                        
+                        # Formulario
                         ft.Text("Datos Personales", weight=ft.FontWeight.BOLD),
                         ft.Row([nombre_field, apellido_field], spacing=10),
                         documento_field,
@@ -908,6 +922,10 @@ class SociosView(ft.Column):
             # Obtener datos completos del socio desde el backend
             socio_completo = await api_client.get_miembro(socio["id"])
 
+            # Banners de error/éxito para el diálogo
+            error_banner = ErrorBanner()
+            success_banner = SuccessBanner()
+
             # Variable para almacenar la foto
             foto_seleccionada = {"data": None, "nombre": None}
 
@@ -988,14 +1006,17 @@ class SociosView(ft.Column):
             camara_context["dialogo_principal"] = None  # se asignará más abajo una vez creado el dialogo
         
             async def guardar_cambios(e):
+                # Limpiar mensajes previos
+                error_banner.hide()
+                success_banner.hide()
             
                 # Validar campos requeridos
                 if not all([nombre_field.value, apellido_field.value]):
-                    self.show_snackbar("Completa los campos obligatorios (*)", error=True)
+                    error_banner.show_error("⚠️ Completa los campos obligatorios (*)")
                     return
             
                 if not categoria_dropdown.value:
-                    self.show_snackbar("Debes seleccionar una categoría", error=True)
+                    error_banner.show_error("⚠️ Debes seleccionar una categoría")
                     return
                 
                 try:
@@ -1022,13 +1043,13 @@ class SociosView(ft.Column):
                     dialogo.open = False
                     self.page.update()
                     
-                    self.show_snackbar("Socio actualizado exitosamente")
+                    show_success(self.page, "Socio actualizado exitosamente")
                     await self.load_socios()
                 
                 except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    self.show_snackbar(f"Error: {e}", error=True)
+                    # Usar error handler con banner para mostrar error en el diálogo
+                    handle_api_error_with_banner(e, error_banner, "actualizar socio")
+                    # NO cerrar el diálogo para que el usuario pueda corregir
      
             def cerrar_dialogo(e):
                 dialogo.open = False
@@ -1040,12 +1061,19 @@ class SociosView(ft.Column):
                 content=ft.Container(
                     content=ft.Column(
                         [
+                            # Banners para mensajes en el diálogo
+                            error_banner,
+                            success_banner,
+                            
+                            # Información del socio
                             ft.Text(
                                 f"Documento: {socio_completo.get('numero_documento', '')}",
                                 size=12,
                                 color=ft.Colors.GREY_600
                             ),
                             ft.Divider(),
+                            
+                            # Formulario
                             ft.Text("Datos Personales", weight=ft.FontWeight.BOLD, size=14),
                             ft.Row([nombre_field, apellido_field], spacing=10),
                             email_field,
