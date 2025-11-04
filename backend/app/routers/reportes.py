@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, extract, case
 from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from typing import Optional, List, Dict, Any
 import logging
 
@@ -498,6 +499,164 @@ async def obtener_reporte_dashboard(
         },
         "fecha": hoy.isoformat()
     }
+
+
+# ==================== HISTÓRICOS PARA GRÁFICOS ====================
+
+@router.get("/ingresos-historicos")
+async def obtener_ingresos_historicos(
+    meses: int = Query(6, description="Cantidad de meses a retornar"),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Obtener histórico de ingresos por mes
+    
+    Args:
+        meses: Cantidad de meses hacia atrás (default: 6)
+    
+    Returns:
+        Lista de ingresos mensuales con fecha y monto
+    """
+    # Fecha actual
+    hoy = date.today()
+    
+    # Calcular meses hacia atrás
+    historico = []
+    
+    for i in range(meses - 1, -1, -1):  # Del más antiguo al más reciente
+        # Calcular fecha del mes
+        mes_fecha = hoy - relativedelta(months=i)
+        primer_dia = mes_fecha.replace(day=1)
+        
+        # Último día del mes
+        if mes_fecha.month == 12:
+            ultimo_dia = mes_fecha.replace(day=31)
+        else:
+            siguiente_mes = mes_fecha.replace(day=1) + relativedelta(months=1)
+            ultimo_dia = siguiente_mes - relativedelta(days=1)
+        
+        # Calcular ingresos del mes
+        total_ingresos = db.query(func.sum(MovimientoCaja.monto)).filter(
+            MovimientoCaja.tipo == "ingreso",
+            MovimientoCaja.fecha_movimiento >= primer_dia,
+            MovimientoCaja.fecha_movimiento <= ultimo_dia
+        ).scalar() or 0.0
+        
+        # Calcular egresos del mes
+        total_egresos = db.query(func.sum(MovimientoCaja.monto)).filter(
+            MovimientoCaja.tipo == "egreso",
+            MovimientoCaja.fecha_movimiento >= primer_dia,
+            MovimientoCaja.fecha_movimiento <= ultimo_dia
+        ).scalar() or 0.0
+        
+        # Nombres de meses en español
+        nombres_meses = [
+            "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+            "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
+        ]
+        
+        historico.append({
+            "mes": nombres_meses[mes_fecha.month - 1],
+            "anio": mes_fecha.year,
+            "mes_numero": mes_fecha.month,
+            "ingresos": float(total_ingresos),
+            "egresos": float(total_egresos),
+            "balance": float(total_ingresos - total_egresos),
+            "fecha_inicio": primer_dia.isoformat(),
+            "fecha_fin": ultimo_dia.isoformat()
+        })
+    
+    return {
+        "historico": historico,
+        "total_meses": len(historico),
+        "fecha_consulta": hoy.isoformat()
+    }
+
+
+@router.get("/accesos-detallados")
+async def obtener_accesos_detallados(
+    fecha: Optional[str] = Query(None, description="Fecha específica (YYYY-MM-DD)"),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Obtener accesos detallados por hora para gráficos
+    
+    Args:
+        fecha: Fecha a consultar (default: hoy)
+    
+    Returns:
+        Accesos agrupados por hora con detalles
+    """
+    # Determinar fecha
+    if fecha:
+        fecha_consulta = datetime.fromisoformat(fecha).date()
+    else:
+        fecha_consulta = date.today()
+    
+    inicio_dia = datetime.combine(fecha_consulta, datetime.min.time())
+    fin_dia = datetime.combine(fecha_consulta, datetime.max.time())
+    
+    # Obtener todos los accesos del día
+    accesos = db.query(Acceso).filter(
+        Acceso.fecha_hora >= inicio_dia.isoformat(),
+        Acceso.fecha_hora <= fin_dia.isoformat()
+    ).all()
+    
+    # Agrupar por hora
+    accesos_por_hora = {}
+    for hora in range(24):
+        accesos_por_hora[hora] = {
+            "hora": f"{hora:02d}:00",
+            "total": 0,
+            "permitidos": 0,
+            "rechazados": 0,
+            "advertencias": 0
+        }
+    
+    # Contar accesos
+    for acceso in accesos:
+        try:
+            fecha_hora = datetime.fromisoformat(acceso.fecha_hora.replace("Z", "+00:00"))
+            hora = fecha_hora.hour
+            
+            accesos_por_hora[hora]["total"] += 1
+            
+            if acceso.resultado == ResultadoAcceso.PERMITIDO:
+                accesos_por_hora[hora]["permitidos"] += 1
+            elif acceso.resultado == ResultadoAcceso.RECHAZADO:
+                accesos_por_hora[hora]["rechazados"] += 1
+            else:
+                accesos_por_hora[hora]["advertencias"] += 1
+        except:
+            continue
+    
+    # Convertir a lista
+    resultado = list(accesos_por_hora.values())
+    
+    # Estadísticas generales
+    total_dia = len(accesos)
+    permitidos_dia = sum(1 for a in accesos if a.resultado == ResultadoAcceso.PERMITIDO)
+    rechazados_dia = sum(1 for a in accesos if a.resultado == ResultadoAcceso.RECHAZADO)
+    
+    # Horario pico
+    hora_pico = max(accesos_por_hora.items(), key=lambda x: x[1]["total"])
+    
+    return {
+        "fecha": fecha_consulta.isoformat(),
+        "accesos_por_hora": resultado,
+        "estadisticas": {
+            "total": total_dia,
+            "permitidos": permitidos_dia,
+            "rechazados": rechazados_dia,
+            "hora_pico": hora_pico[1]["hora"],
+            "accesos_hora_pico": hora_pico[1]["total"]
+        }
+    }
+
+
+# ==================== EXPORTACIÓN ====================
 
     """
 Endpoints de Exportación - Agregar a reportes.py

@@ -10,9 +10,7 @@ class LoginView(ft.Container):
     """Pantalla de login"""
     
     def __init__(self, on_login_success):
-        super().__init__()
         self.on_login_success = on_login_success
-        self.page = None  # Se establecerá cuando se agregue a la página
         
         # Campos de formulario
         self.username_field = ft.TextField(
@@ -20,6 +18,7 @@ class LoginView(ft.Container):
             prefix_icon=ft.Icons.PERSON,
             hint_text="Ingresa tu usuario",
             autofocus=True,
+            on_submit=self.handle_login_sync
         )
         
         self.password_field = ft.TextField(
@@ -28,6 +27,7 @@ class LoginView(ft.Container):
             password=True,
             can_reveal_password=True,
             hint_text="Ingresa tu contraseña",
+            on_submit=self.handle_login_sync
         )
         
         self.error_text = ft.Text(
@@ -43,13 +43,14 @@ class LoginView(ft.Container):
             style=ft.ButtonStyle(
                 color=ft.Colors.WHITE,
                 bgcolor=ft.Colors.BLUE,
-            )
+            ),
+            on_click=self.handle_login_sync
         )
         
         self.loading_indicator = ft.ProgressRing(visible=False)
         
-        # Contenedor del formulario
-        self.content = ft.Container(
+        # Construir el contenido completo
+        login_content = ft.Container(
             content=ft.Column(
                 [
                     # Logo/Icono
@@ -146,29 +147,30 @@ class LoginView(ft.Container):
             )
         )
         
-        self.expand = True
+        # Inicializar el Container padre con el contenido
+        super().__init__(
+            content=login_content,
+            expand=True
+        )
     
     def did_mount(self):
         """Llamado cuando el control se monta en la página"""
-        self.page = self.page or self.content.page
-        # Conectar eventos después de montar
-        self.username_field.on_submit = lambda _: self.page.run_task(self.handle_login)
-        self.password_field.on_submit = lambda _: self.page.run_task(self.handle_login)
-        self.login_button.on_click = lambda _: self.page.run_task(self.handle_login)
-        self.update()
+        pass  # Ya no es necesario
+    
+    def handle_login_sync(self, e):
+        """Wrapper síncrono para manejar el login"""
+        self.page.run_task(self.handle_login)
     
     def show_error(self, message: str):
         """Mostrar mensaje de error"""
         self.error_text.value = message
         self.error_text.visible = True
-        if self.page:
-            self.update()
+        self.update()
     
     def hide_error(self):
         """Ocultar mensaje de error"""
         self.error_text.visible = False
-        if self.page:
-            self.update()
+        self.update()
     
     def set_loading(self, loading: bool):
         """Mostrar/ocultar loading"""
@@ -176,8 +178,7 @@ class LoginView(ft.Container):
         self.login_button.disabled = loading
         self.username_field.disabled = loading
         self.password_field.disabled = loading
-        if self.page:
-            self.update()
+        self.update()
     
     async def handle_login(self):
         """Manejar intento de login"""

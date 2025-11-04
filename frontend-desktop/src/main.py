@@ -4,8 +4,9 @@ frontend-desktop/src/main.py
 """
 import flet as ft
 from src.views.login_view import LoginView
-from src.views.dashboard_view import DashboardView
+from src.views.main_layout import MainLayout
 from src.services.api_client import api_client
+from src.utils.notification_manager import NotificationManager
 
 
 class App:
@@ -14,6 +15,7 @@ class App:
     def __init__(self, page: ft.Page):
         self.page = page
         self.current_user = None
+        self.notification_manager = None
         
         # Configuración de la página
         self.page.title = "Sistema de Gestión de Socios"
@@ -29,6 +31,9 @@ class App:
             color_scheme_seed=ft.Colors.BLUE,
         )
         
+        # Inicializar gestor de notificaciones
+        self.notification_manager = NotificationManager(page)
+        
         # Iniciar con login
         self.show_login()
     
@@ -42,24 +47,75 @@ class App:
     def on_login_success(self, user_data: dict):
         """Callback cuando login es exitoso"""
         self.current_user = user_data
-        self.show_dashboard()
+        self.show_main_layout()
     
-    def show_dashboard(self):
-        """Mostrar dashboard principal"""
+    def show_main_layout(self):
+        """Mostrar layout principal con sidebar"""
         self.page.clean()
-        dashboard = DashboardView(
+        
+        # Configurar AppBar con notificaciones
+        notification_badge = self.notification_manager.create_notification_badge()
+        self.page.appbar = ft.AppBar(
+            title=ft.Text("Sistema de Gestión de Socios"),
+            center_title=False,
+            bgcolor=ft.Colors.BLUE,
+            actions=[notification_badge]
+        )
+        
+        main_layout = MainLayout(
             page=self.page,
             user=self.current_user,
-            on_logout=self.on_logout
+            on_logout=self.on_logout,
+            initial_view="dashboard"
         )
-        self.page.add(dashboard)
+        self.page.add(main_layout)
         self.page.update()
+        
+        # Cargar vista inicial
+        main_layout.load_view("dashboard")
+        
+        # Iniciar sistema de notificaciones en background
+        self.page.run_task(self.start_notifications)
     
     def on_logout(self):
         """Callback cuando usuario cierra sesión"""
+        # Detener notificaciones
+        if self.notification_manager:
+            self.notification_manager.stop_background_check()
+        
         api_client.logout()
         self.current_user = None
+        
+        # Limpiar AppBar
+        self.page.appbar = None
+        
         self.show_login()
+    
+    async def start_notifications(self):
+        """Iniciar sistema de notificaciones"""
+        try:
+            # Función para chequear morosos
+            async def check_morosos():
+                try:
+                    data = await api_client.get_reporte_morosidad()
+                    morosos = data.get("morosos", [])
+                    return len(morosos)
+                except Exception as e:
+                    print(f"Error al obtener reporte de morosidad: {e}")
+                    return 0
+            
+            # Agregar notificación de bienvenida
+            self.notification_manager.add_notification(
+                titulo="✅ Bienvenido",
+                mensaje=f"Sesión iniciada como {self.current_user.get('username', 'usuario')}",
+                tipo="success"
+            )
+            
+            # Iniciar chequeo en background de morosos (cada 5 minutos)
+            await self.notification_manager.start_background_check(check_morosos)
+            
+        except Exception as e:
+            print(f"Error al iniciar notificaciones: {e}")
 
 
 def main(page: ft.Page):

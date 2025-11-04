@@ -1,221 +1,655 @@
 """
-Vista Dashboard Principal - ACTUALIZADO
+Vista de Dashboard Principal
 frontend-desktop/src/views/dashboard_view.py
 """
 import flet as ft
-from src.views.socios_view import SociosView
-from src.views.cuotas_view import CuotasView
-from src.views.accesos_qr_view import AccesosQRView
-from src.views.accesos_view import AccesosView
-from src.views.reportes_view import ReportesView
-from src.views.usuarios_view import UsuariosView
-from src.views.categorias_view import CategoriasView
+from src.services.api_client import api_client
+from datetime import datetime, date, timedelta
 
 
-class DashboardView(ft.Container):
-    """Dashboard principal con navegación"""
+class DashboardView(ft.Column):
+    """Dashboard principal con KPIs y estadísticas"""
     
-    def __init__(self, page: ft.Page, user: dict, on_logout):
+    def __init__(self, page: ft.Page, user: dict = None, on_logout=None, navigate_callback=None):
         super().__init__()
         self.page = page
         self.user = user
         self.on_logout = on_logout
+        self.navigate_callback = navigate_callback
         
-        # Vista actual
-        self.current_view = "socios"
+        # Contenedores para datos dinámicos
+        self.kpi_socios = None
+        self.kpi_ingresos = None
+        self.kpi_morosidad = None
+        self.kpi_accesos = None
+        self.alertas_container = None
+        self.grafico_ingresos = None
+        self.grafico_accesos = None
         
-        # Contenedor de contenido
-        self.content_container = ft.Container(
-            expand=True,
-            padding=20
-        )
-        
-        # Crear interfaz
+        # Construir UI
         self.build_ui()
     
     def build_ui(self):
-        """Construir la interfaz"""
+        """Construir interfaz del dashboard"""
         
-        # Verificar si el usuario es admin
-        is_admin = self.user.get("rol") in ["super_admin", "administrador"]
+        # Header compacto con título y botón de refresh
+        header = ft.Row(
+            [
+                ft.Text(
+                    "📊 Dashboard",
+                    size=24,
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Container(expand=True),
+                ft.Text(
+                    f"{datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                    size=12,
+                    color=ft.Colors.GREY_600
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH,
+                    tooltip="Actualizar",
+                    on_click=lambda _: self.load_dashboard_data(),
+                    icon_color=ft.Colors.BLUE,
+                    icon_size=20
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+        )
         
-        # NavigationRail (menú lateral)
-        destinations = [
-            ft.NavigationRailDestination(
-                icon=ft.Icons.PEOPLE_OUTLINE,
-                selected_icon=ft.Icons.PEOPLE,
-                label="Socios"
+        # KPIs principales (más compactos)
+        self.kpi_socios = self._create_kpi_skeleton()
+        self.kpi_ingresos = self._create_kpi_skeleton()
+        self.kpi_morosidad = self._create_kpi_skeleton()
+        self.kpi_accesos = self._create_kpi_skeleton()
+        
+        kpis_row = ft.Row(
+            [
+                self.kpi_socios,
+                self.kpi_ingresos,
+                self.kpi_morosidad,
+                self.kpi_accesos,
+            ],
+            spacing=10,
+            wrap=False
+        )
+        
+        # Gráficos más compactos
+        self.grafico_ingresos = ft.Container(
+            content=ft.Column(
+                [ft.ProgressRing(width=30, height=30)],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER
             ),
-            ft.NavigationRailDestination(
-                icon=ft.Icons.PAYMENT_OUTLINED,
-                selected_icon=ft.Icons.PAYMENT,
-                label="Cuotas"
+            padding=15,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+            expand=True,
+            height=220
+        )
+        
+        self.grafico_accesos = ft.Container(
+            content=ft.Column(
+                [ft.ProgressRing(width=30, height=30)],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER
             ),
-            ft.NavigationRailDestination(
-                icon=ft.Icons.QR_CODE_SCANNER_OUTLINED,
-                selected_icon=ft.Icons.QR_CODE_SCANNER,
-                label="Escáner QR"
+            padding=15,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+            expand=True,
+            height=220
+        )
+        
+        graficos_row = ft.Row(
+            [
+                self.grafico_ingresos,
+                self.grafico_accesos,
+            ],
+            spacing=10
+        )
+        
+        # Alertas y acciones rápidas (más compactas)
+        self.alertas_container = ft.Container(
+            content=ft.Column(
+                [ft.ProgressRing(width=30, height=30)],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER
             ),
-            ft.NavigationRailDestination(
-                icon=ft.Icons.DOOR_FRONT_DOOR_OUTLINED,
-                selected_icon=ft.Icons.DOOR_FRONT_DOOR,
-                label="Historial"
-            ),
-            ft.NavigationRailDestination(
-                icon=ft.Icons.BAR_CHART_OUTLINED,
-                selected_icon=ft.Icons.BAR_CHART,
-                label="Reportes"
-            ),
+            padding=15,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+            expand=True,
+            height=200
+        )
+        
+        acciones_rapidas = self._create_acciones_rapidas()
+        
+        bottom_row = ft.Row(
+            [
+                self.alertas_container,
+                acciones_rapidas,
+            ],
+            spacing=10
+        )
+        
+        # Ensamblar todo con menos espaciado
+        self.controls = [
+            header,
+            ft.Divider(height=1),
+            kpis_row,
+            graficos_row,
+            bottom_row,
         ]
         
-        # Agregar opciones de admin
-        if is_admin:
-            destinations.extend([
-                ft.NavigationRailDestination(
-                    icon=ft.Icons.CATEGORY_OUTLINED,
-                    selected_icon=ft.Icons.CATEGORY,
-                    label="Categorías"
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED,
-                    selected_icon=ft.Icons.ADMIN_PANEL_SETTINGS,
-                    label="Usuarios"
-                ),
-            ])
+        self.spacing = 15
+        self.expand = True
+        self.scroll = ft.ScrollMode.AUTO
+    
+    def load_dashboard_data(self):
+        """Cargar datos del dashboard"""
+        self.page.run_task(self._load_dashboard_data)
+    
+    async def _load_dashboard_data(self):
+        """Cargar datos del dashboard (async)"""
+        try:
+            # Cargar datos del dashboard
+            dashboard_data = await api_client.get_dashboard()
+            
+            # Actualizar KPIs
+            self._update_kpis(dashboard_data)
+            
+            # Actualizar gráficos
+            await self._update_graficos(dashboard_data)
+            
+            # Actualizar alertas
+            await self._update_alertas()
+            
+        except Exception as e:
+            self.show_error(f"Error al cargar dashboard: {e}")
+    
+    def _update_kpis(self, data: dict):
+        """Actualizar KPIs con datos del servidor"""
+        socios_data = data.get("socios", {})
+        finanzas_data = data.get("finanzas_mes", {})
+        accesos_data = data.get("accesos", {})
         
-        nav_rail = ft.NavigationRail(
-            selected_index=0,
-            label_type=ft.NavigationRailLabelType.ALL,
-            min_width=100,
-            min_extended_width=200,
-            group_alignment=-0.9,
-            destinations=destinations,
-            on_change=self.on_nav_change,
+        # KPI Socios
+        total_socios = socios_data.get("total", 0)
+        activos = socios_data.get("activos", 0)
+        porcentaje_activos = (activos / total_socios * 100) if total_socios > 0 else 0
+        
+        self.kpi_socios.content = self._create_kpi_content(
+            titulo="Socios",
+            valor=str(total_socios),
+            subtitulo=f"{activos} activos ({porcentaje_activos:.1f}%)",
+            icono=ft.Icons.PEOPLE,
+            color=ft.Colors.BLUE,
+            tendencia="up" if porcentaje_activos > 80 else "neutral"
         )
         
-        # AppBar superior (header)
-        header = ft.Container(
-            content=ft.Row(
+        # KPI Ingresos
+        ingresos = finanzas_data.get("ingresos", 0)
+        balance = finanzas_data.get("balance", 0)
+        
+        self.kpi_ingresos.content = self._create_kpi_content(
+            titulo="Ingresos del Mes",
+            valor=f"${ingresos:,.0f}",
+            subtitulo=f"Balance: ${balance:,.0f}",
+            icono=ft.Icons.ATTACH_MONEY,
+            color=ft.Colors.GREEN,
+            tendencia="up" if balance > 0 else "down"
+        )
+        
+        # KPI Morosidad
+        morosos = socios_data.get("morosos", 0)
+        porcentaje_morosos = socios_data.get("porcentaje_morosos", 0)
+        
+        self.kpi_morosidad.content = self._create_kpi_content(
+            titulo="Morosidad",
+            valor=str(morosos),
+            subtitulo=f"{porcentaje_morosos:.1f}% del total",
+            icono=ft.Icons.WARNING,
+            color=ft.Colors.ORANGE if morosos > 0 else ft.Colors.GREEN,
+            tendencia="down" if porcentaje_morosos < 10 else "up"
+        )
+        
+        # KPI Accesos
+        accesos_hoy = accesos_data.get("hoy", 0)
+        
+        self.kpi_accesos.content = self._create_kpi_content(
+            titulo="Accesos Hoy",
+            valor=str(accesos_hoy),
+            subtitulo=datetime.now().strftime("%d/%m/%Y"),
+            icono=ft.Icons.DOOR_FRONT_DOOR,
+            color=ft.Colors.PURPLE,
+            tendencia="neutral"
+        )
+        
+        # Actualizar todos los KPIs
+        self.kpi_socios.update()
+        self.kpi_ingresos.update()
+        self.kpi_morosidad.update()
+        self.kpi_accesos.update()
+    
+    async def _update_graficos(self, data: dict):
+        """Actualizar gráficos con datos reales"""
+        
+        # Gráfico de ingresos (datos históricos reales)
+        try:
+            historico_data = await api_client.get_ingresos_historicos(meses=6)
+            historico = historico_data.get("historico", [])
+            
+            meses = [h.get("mes") for h in historico]
+            valores_ingresos = [h.get("ingresos", 0) for h in historico]
+            
+            self.grafico_ingresos.content = self._create_bar_chart(
+                titulo="Ingresos Últimos 6 Meses",
+                categorias=meses,
+                valores=valores_ingresos,
+                color=ft.Colors.GREEN,
+                formato_valor="$"
+            )
+            self.grafico_ingresos.update()
+            
+        except Exception as e:
+            self.grafico_ingresos.content = ft.Text(
+                f"Error al cargar ingresos: {e}",
+                color=ft.Colors.RED
+            )
+            self.grafico_ingresos.update()
+        
+        # Gráfico de accesos (datos reales por hora)
+        try:
+            accesos_data = await api_client.get_accesos_detallados()
+            accesos_por_hora = accesos_data.get("accesos_por_hora", [])
+            estadisticas = accesos_data.get("estadisticas", {})
+            
+            # Filtrar solo horas con actividad o cada 3 horas
+            horas = []
+            cantidades = []
+            
+            for hora_data in accesos_por_hora:
+                hora = hora_data.get("hora", "00:00")
+                total = hora_data.get("total", 0)
+                hora_num = int(hora.split(":")[0])
+                
+                # Mostrar si hay actividad o cada 3 horas
+                if total > 0 or hora_num % 3 == 0:
+                    horas.append(hora)
+                    cantidades.append(total)
+            
+            # Crear gráfico con información adicional de hora pico
+            grafico_content = ft.Column(
                 [
-                    ft.Text(
-                        "Sistema de Gestión de Socios",
-                        size=20,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE
-                    ),
-                    ft.Container(expand=True),  # Spacer
-                    # Badge de rol
-                    ft.Container(
-                        content=ft.Text(
-                            self.user.get("rol", "").replace("_", " ").upper(),
-                            size=11,
-                            weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.WHITE
-                        ),
-                        bgcolor=ft.Colors.with_opacity(0.3, ft.Colors.WHITE),
-                        padding=8,
-                        border_radius=5
-                    ),
-                    ft.PopupMenuButton(
-                        icon=ft.Icons.ACCOUNT_CIRCLE,
-                        icon_color=ft.Colors.WHITE,
-                        items=[
-                            ft.PopupMenuItem(
-                                content=ft.Column(
-                                    [
-                                        ft.Text(
-                                            self.user.get("nombre_completo", "Usuario"),
-                                            weight=ft.FontWeight.BOLD
-                                        ),
-                                        ft.Text(
-                                            self.user.get("email", ""),
-                                            size=11,
-                                            color=ft.Colors.GREY_600
-                                        )
-                                    ],
-                                    spacing=2
-                                ),
-                                disabled=True
+                    ft.Row(
+                        [
+                            ft.Text(
+                                "Accesos por Horario (Hoy)",
+                                size=16,
+                                weight=ft.FontWeight.BOLD
                             ),
-                            ft.PopupMenuItem(),  # Divider
-                            ft.PopupMenuItem(
-                                text="Cerrar Sesión",
-                                icon=ft.Icons.LOGOUT,
-                                on_click=lambda _: self.on_logout()
+                            ft.Container(expand=True),
+                            ft.Container(
+                                content=ft.Text(
+                                    f"🔥 Pico: {estadisticas.get('hora_pico', 'N/A')} ({estadisticas.get('accesos_hora_pico', 0)} accesos)",
+                                    size=11,
+                                    color=ft.Colors.ORANGE
+                                ),
+                                bgcolor=ft.Colors.ORANGE_50,
+                                padding=8,
+                                border_radius=5
                             )
-                        ]
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    ),
+                    ft.Divider(height=1),
+                    ft.Row(
+                        self._create_bar_elements(horas, cantidades, ft.Colors.BLUE),
+                        spacing=15,
+                        scroll=ft.ScrollMode.AUTO,
+                        alignment=ft.MainAxisAlignment.START
                     )
                 ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                spacing=10
+            )
+            
+            self.grafico_accesos.content = grafico_content
+            self.grafico_accesos.update()
+            
+        except Exception as e:
+            self.grafico_accesos.content = ft.Text(
+                f"Error al cargar accesos: {e}",
+                color=ft.Colors.RED
+            )
+            self.grafico_accesos.update()
+    
+    async def _update_alertas(self):
+        """Actualizar panel de alertas"""
+        try:
+            # Obtener datos de morosidad
+            morosidad_data = await api_client.get_reporte_morosidad()
+            morosos = morosidad_data.get("morosos", [])
+            
+            # Top 5 morosos con mayor deuda
+            top_morosos = sorted(morosos, key=lambda x: x.get("deuda", 0), reverse=True)[:5]
+            
+            alertas = []
+            
+            # Alerta de morosidad
+            if len(morosos) > 0:
+                alertas.append(
+                    self._create_alerta(
+                        titulo="⚠️ Socios Morosos",
+                        descripcion=f"{len(morosos)} socios con deudas pendientes",
+                        color=ft.Colors.ORANGE,
+                        accion_texto="Ver Detalles",
+                        accion=lambda: self.navigate_to("reportes")
+                    )
+                )
+            
+            # Alertas de top morosos
+            for moroso in top_morosos[:3]:
+                alertas.append(
+                    self._create_alerta_compacta(
+                        f"{moroso.get('nombre_completo', 'N/A')}",
+                        f"Deuda: ${moroso.get('deuda', 0):,.2f}",
+                        ft.Colors.RED_100
+                    )
+                )
+            
+            # Si no hay alertas
+            if not alertas:
+                alertas.append(
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Icon(ft.Icons.CHECK_CIRCLE, size=60, color=ft.Colors.GREEN),
+                                ft.Text(
+                                    "¡Todo en orden!",
+                                    size=18,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=ft.Colors.GREEN
+                                ),
+                                ft.Text("No hay alertas pendientes", color=ft.Colors.GREY_600)
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=10
+                        ),
+                        padding=20
+                    )
+                )
+            
+            self.alertas_container.content = ft.Column(
+                [
+                    ft.Text("🔔 Alertas", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Divider(),
+                    *alertas
+                ],
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO
+            )
+            self.alertas_container.update()
+            
+        except Exception as e:
+            self.alertas_container.content = ft.Text(
+                f"Error al cargar alertas: {e}",
+                color=ft.Colors.RED
+            )
+            self.alertas_container.update()
+    
+    def _create_kpi_skeleton(self):
+        """Crear skeleton loader para KPI (compacto)"""
+        return ft.Container(
+            content=ft.Column(
+                [ft.ProgressRing(width=16, height=16)],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER
             ),
-            bgcolor=ft.Colors.BLUE,
-            padding=15,
-            height=60
+            padding=12,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+            expand=True,
+            height=110
         )
+    
+    def _create_kpi_content(
+        self,
+        titulo: str,
+        valor: str,
+        subtitulo: str,
+        icono,
+        color,
+        tendencia: str = "neutral"
+    ):
+        """Crear contenido de KPI (compacto)"""
+        # Icono de tendencia (más pequeño)
+        if tendencia == "up":
+            tendencia_icon = ft.Icon(ft.Icons.TRENDING_UP, color=ft.Colors.GREEN, size=16)
+        elif tendencia == "down":
+            tendencia_icon = ft.Icon(ft.Icons.TRENDING_DOWN, color=ft.Colors.RED, size=16)
+        else:
+            tendencia_icon = ft.Icon(ft.Icons.REMOVE, color=ft.Colors.GREY, size=16)
         
-        # Layout principal
-        self.content = ft.Column(
+        return ft.Column(
             [
-                header,
                 ft.Row(
                     [
-                        nav_rail,
-                        ft.VerticalDivider(width=1),
-                        self.content_container
+                        ft.Icon(icono, size=32, color=color),
+                        ft.Container(expand=True),
+                        tendencia_icon
                     ],
-                    expand=True,
-                    spacing=0
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                ),
+                ft.Text(titulo, size=12, color=ft.Colors.GREY_600),
+                ft.Text(valor, size=22, weight=ft.FontWeight.BOLD, color=color),
+                ft.Text(subtitulo, size=10, color=ft.Colors.GREY_500),
+            ],
+            spacing=3
+        )
+    
+    def _create_bar_chart(
+        self,
+        titulo: str,
+        categorias: list,
+        valores: list,
+        color,
+        formato_valor: str = ""
+    ):
+        """Crear gráfico de barras simple"""
+        barras = self._create_bar_elements(categorias, valores, color, formato_valor)
+        
+        return ft.Column(
+            [
+                ft.Text(titulo, size=16, weight=ft.FontWeight.BOLD),
+                ft.Divider(height=1),
+                ft.Row(
+                    barras,
+                    spacing=15,
+                    scroll=ft.ScrollMode.AUTO,
+                    alignment=ft.MainAxisAlignment.START
                 )
             ],
-            spacing=0,
-            expand=True
+            spacing=10
         )
-        
-        self.expand = True
-        self.padding = 0
-        
-        # Cargar vista inicial
-        self.load_view("socios")
     
-    def on_nav_change(self, e):
-        """Cambiar de vista según navegación"""
-        # Verificar si es admin
-        is_admin = self.user.get("rol") in ["super_admin", "administrador"]
+    def _create_bar_elements(
+        self,
+        categorias: list,
+        valores: list,
+        color,
+        formato_valor: str = ""
+    ):
+        """Crear elementos de barras para el gráfico"""
+        max_valor = max(valores) if valores else 1
         
-        # Mapeo de vistas
-        if is_admin:
-            views = ["socios", "cuotas", "escaner_qr", "historial_accesos", "reportes", "categorias", "usuarios"]
+        barras = []
+        for cat, val in zip(categorias, valores):
+            altura = (val / max_valor * 150) if max_valor > 0 else 0
+            
+            # Mostrar valor solo si es mayor a 0
+            valor_texto = ""
+            if val > 0:
+                if formato_valor == "$":
+                    valor_texto = f"{formato_valor}{val:,.0f}"
+                else:
+                    valor_texto = str(int(val))
+            
+            barras.append(
+                ft.Column(
+                    [
+                        ft.Text(
+                            valor_texto,
+                            size=10,
+                            weight=ft.FontWeight.BOLD
+                        ),
+                        ft.Container(
+                            bgcolor=color if val > 0 else ft.Colors.GREY_300,
+                            height=max(altura, 20),
+                            width=40,
+                            border_radius=5,
+                        ),
+                        ft.Text(cat, size=10, color=ft.Colors.GREY_600),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=5
+                )
+            )
+        
+        return barras
+    
+    def _create_alerta(self, titulo: str, descripcion: str, color, accion_texto: str, accion):
+        """Crear alerta destacada"""
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(titulo, size=14, weight=ft.FontWeight.BOLD),
+                            ft.Text(descripcion, size=12, color=ft.Colors.GREY_600),
+                        ],
+                        spacing=5,
+                        expand=True
+                    ),
+                    ft.TextButton(
+                        accion_texto,
+                        on_click=lambda _: accion()
+                    )
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+            ),
+            bgcolor=color + "20",  # Color con transparencia
+            border=ft.border.all(1, color),
+            border_radius=8,
+            padding=15
+        )
+    
+    def _create_alerta_compacta(self, titulo: str, descripcion: str, bgcolor):
+        """Crear alerta compacta"""
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(titulo, size=12, weight=ft.FontWeight.BOLD),
+                    ft.Text(descripcion, size=11, color=ft.Colors.GREY_700),
+                ],
+                spacing=3
+            ),
+            bgcolor=bgcolor,
+            border_radius=5,
+            padding=10
+        )
+    
+    def _create_acciones_rapidas(self):
+        """Crear panel de acciones rápidas (compacto)"""
+        acciones = [
+            {
+                "titulo": "Registrar Pago",
+                "icono": ft.Icons.ATTACH_MONEY,
+                "color": ft.Colors.GREEN,
+                "accion": lambda: self.navigate_to("cuotas")
+            },
+            {
+                "titulo": "Nuevo Socio",
+                "icono": ft.Icons.PERSON_ADD,
+                "color": ft.Colors.BLUE,
+                "accion": lambda: self.navigate_to("socios")
+            },
+            {
+                "titulo": "Ver Reportes",
+                "icono": ft.Icons.ASSESSMENT,
+                "color": ft.Colors.ORANGE,
+                "accion": lambda: self.navigate_to("reportes")
+            },
+            {
+                "titulo": "Validar Acceso",
+                "icono": ft.Icons.QR_CODE_SCANNER,
+                "color": ft.Colors.PURPLE,
+                "accion": lambda: self.navigate_to("accesos")
+            },
+        ]
+        
+        botones = []
+        for acc in acciones:
+            botones.append(
+                ft.ElevatedButton(
+                    content=ft.Row(
+                        [
+                            ft.Icon(acc["icono"], color=ft.Colors.WHITE, size=18),
+                            ft.Text(acc["titulo"], color=ft.Colors.WHITE, size=11),
+                        ],
+                        spacing=8
+                    ),
+                    style=ft.ButtonStyle(
+                        bgcolor=acc["color"],
+                        padding=10
+                    ),
+                    on_click=lambda _, a=acc["accion"]: a(),
+                    expand=True
+                )
+            )
+        
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("⚡ Acciones Rápidas", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Divider(height=1),
+                    ft.Column(botones, spacing=8)
+                ],
+                spacing=8
+            ),
+            padding=15,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+            expand=True,
+            height=200
+        )
+    
+    def navigate_to(self, route: str):
+        """Navegar a otra vista"""
+        if self.navigate_callback:
+            self.navigate_callback(route)
         else:
-            views = ["socios", "cuotas", "escaner_qr", "historial_accesos", "reportes"]
-        
-        selected = e.control.selected_index
-        
-        if selected < len(views):
-            self.load_view(views[selected])
+            self.show_info(f"Navegar a: {route}")
     
-    def load_view(self, view_name: str):
-        """Cargar una vista específica"""
-        self.current_view = view_name
-        
-        # Limpiar contenedor
-        self.content_container.content = None
-        
-        # Cargar vista correspondiente
-        if view_name == "socios":
-            self.content_container.content = SociosView(self.page)
-        elif view_name == "cuotas":
-            self.content_container.content = CuotasView(self.page)
-        elif view_name == "escaner_qr":
-            self.content_container.content = AccesosQRView(self.page)
-        elif view_name == "historial_accesos":
-            self.content_container.content = AccesosView(self.page)
-        elif view_name == "reportes":
-            self.content_container.content = ReportesView(self.page)
-        elif view_name == "categorias":
-            self.content_container.content = CategoriasView(self.page)
-        elif view_name == "usuarios":
-            self.content_container.content = UsuariosView(self.page)
-        
-        # Actualizar página
-        if self.page:
-            self.page.update()
+    def show_error(self, message: str):
+        """Mostrar error"""
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text(message),
+            bgcolor=ft.Colors.RED
+        )
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def show_info(self, message: str):
+        """Mostrar información"""
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text(message),
+            bgcolor=ft.Colors.BLUE
+        )
+        self.page.snack_bar.open = True
+        self.page.update()

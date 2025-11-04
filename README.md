@@ -61,7 +61,11 @@ python -m venv venv
 source venv/Scripts/activate
 pip install -r requirements.txt
 cp .env.example .env
-python -m src.main
+# Windows Git Bash
+PYTHONPATH=. python src/main.py
+# O en Windows CMD/PowerShell
+set PYTHONPATH=.
+python src/main.py
 ```
 
 ### 7. App Móvil

@@ -563,6 +563,37 @@ class APIClient:
             params["fecha_hasta"] = fecha_hasta
         
         return await self._request("GET", "reportes/accesos", params=params)
+    
+    async def get_ingresos_historicos(self, meses: int = 6) -> Dict[str, Any]:
+        """
+        Obtener histórico de ingresos y egresos mensuales
+        
+        Args:
+            meses: Cantidad de meses hacia atrás (default: 6)
+        
+        Returns:
+            Dict con:
+            - historico: Lista de meses con ingresos, egresos y balance
+            - total_meses: Cantidad de meses retornados
+            - fecha_consulta: Fecha de la consulta
+        """
+        return await self._request("GET", f"reportes/ingresos-historicos?meses={meses}")
+    
+    async def get_accesos_detallados(self, fecha: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Obtener accesos detallados por hora del día
+        
+        Args:
+            fecha: Fecha específica en formato YYYY-MM-DD (default: hoy)
+        
+        Returns:
+            Dict con:
+            - fecha: Fecha consultada
+            - accesos_por_hora: Lista de 24 elementos (una por hora)
+            - estadisticas: Total, permitidos, rechazados, hora pico
+        """
+        params = {"fecha": fecha} if fecha else {}
+        return await self._request("GET", "reportes/accesos-detallados", params=params)
 
     # ==================== EXPORTACIÓN DE REPORTES ====================
     
