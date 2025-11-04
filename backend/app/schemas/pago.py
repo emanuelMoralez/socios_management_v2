@@ -10,6 +10,11 @@ from decimal import Decimal
 from app.models.pago import TipoPago, MetodoPago, EstadoPago
 from app.schemas.common import TimestampMixin
 
+# Importación circular evitada con TYPE_CHECKING
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.schemas.miembro import MiembroListItem
+
 
 # ==================== PAGO BASE ====================
 class PagoBase(BaseModel):
@@ -64,8 +69,8 @@ class PagoResponse(PagoBase, TimestampMixin):
     referencia_externa: Optional[str] = None
     registrado_por_id: Optional[int] = None
     
-    # Datos del miembro (nested)
-    miembro: Optional[dict] = None  # MiembroListItem
+    # Datos del miembro (nested) - tipado correctamente para evitar errores de serialización
+    miembro: Optional["MiembroListItem"] = None
     
     class Config:
         from_attributes = True
@@ -103,7 +108,6 @@ class RegistrarPagoRapido(BaseModel):
 # ==================== ANULAR PAGO ====================
 class AnularPagoRequest(BaseModel):
     """Request para anular un pago"""
-    pago_id: int
     motivo: str = Field(..., min_length=10)
 
 
@@ -175,3 +179,8 @@ class GenerarComprobanteRequest(BaseModel):
     pago_id: int
     enviar_email: bool = False
     email_destino: Optional[str] = None
+
+
+# Resolver forward references después de todas las definiciones
+from app.schemas.miembro import MiembroListItem
+PagoResponse.model_rebuild()

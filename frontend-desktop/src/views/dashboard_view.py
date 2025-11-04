@@ -409,12 +409,12 @@ class DashboardView(ft.Column):
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 alignment=ft.MainAxisAlignment.CENTER
             ),
-            padding=12,
+            padding=15,
             border=ft.border.all(1, ft.Colors.GREY_300),
             border_radius=8,
             bgcolor=ft.Colors.WHITE,
             expand=True,
-            height=110
+            height=150
         )
     
     def _create_kpi_content(
@@ -429,27 +429,27 @@ class DashboardView(ft.Column):
         """Crear contenido de KPI (compacto)"""
         # Icono de tendencia (más pequeño)
         if tendencia == "up":
-            tendencia_icon = ft.Icon(ft.Icons.TRENDING_UP, color=ft.Colors.GREEN, size=16)
+            tendencia_icon = ft.Icon(ft.Icons.TRENDING_UP, color=ft.Colors.GREEN, size=18)
         elif tendencia == "down":
-            tendencia_icon = ft.Icon(ft.Icons.TRENDING_DOWN, color=ft.Colors.RED, size=16)
+            tendencia_icon = ft.Icon(ft.Icons.TRENDING_DOWN, color=ft.Colors.RED, size=18)
         else:
-            tendencia_icon = ft.Icon(ft.Icons.REMOVE, color=ft.Colors.GREY, size=16)
+            tendencia_icon = ft.Icon(ft.Icons.REMOVE, color=ft.Colors.GREY, size=18)
         
         return ft.Column(
             [
                 ft.Row(
                     [
-                        ft.Icon(icono, size=32, color=color),
+                        ft.Icon(icono, size=36, color=color),
                         ft.Container(expand=True),
                         tendencia_icon
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN
                 ),
-                ft.Text(titulo, size=12, color=ft.Colors.GREY_600),
-                ft.Text(valor, size=22, weight=ft.FontWeight.BOLD, color=color),
-                ft.Text(subtitulo, size=10, color=ft.Colors.GREY_500),
+                ft.Text(titulo, size=13, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
+                ft.Text(valor, size=26, weight=ft.FontWeight.BOLD, color=color),
+                ft.Text(subtitulo, size=11, color=ft.Colors.GREY_500),
             ],
-            spacing=3
+            spacing=5
         )
     
     def _create_bar_chart(

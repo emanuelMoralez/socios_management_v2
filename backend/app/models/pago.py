@@ -48,7 +48,7 @@ class Pago(BaseModel):
     
     # Relación con miembro
     miembro_id = Column(Integer, ForeignKey("miembros.id"), nullable=False, index=True)
-    miembro = relationship("Miembro", back_populates="pagos")
+    miembro = relationship("Miembro", back_populates="pagos", lazy="selectin")
     
     # Datos del pago
     tipo = Column(SQLEnum(TipoPago), nullable=False)

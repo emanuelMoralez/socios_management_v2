@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 100
+exclude = [
+  "backend/alembic",
+  "backend/app/__pycache__",
+  "**/__pycache__/**",
+]
+select = ["E", "F", "W"]
+ignore = [
+  # allow unused variables prefixed with _
+  "F841",
+]
