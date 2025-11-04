@@ -86,7 +86,7 @@ class DashboardView(ft.Column):
             border_radius=8,
             bgcolor=ft.Colors.WHITE,
             expand=True,
-            height=220
+            height=280
         )
         
         self.grafico_accesos = ft.Container(
@@ -100,7 +100,7 @@ class DashboardView(ft.Column):
             border_radius=8,
             bgcolor=ft.Colors.WHITE,
             expand=True,
-            height=220
+            height=280
         )
         
         graficos_row = ft.Row(
@@ -123,7 +123,7 @@ class DashboardView(ft.Column):
             border_radius=8,
             bgcolor=ft.Colors.WHITE,
             expand=True,
-            height=200
+            height=280
         )
         
         acciones_rapidas = self._create_acciones_rapidas()
@@ -626,7 +626,7 @@ class DashboardView(ft.Column):
             border_radius=8,
             bgcolor=ft.Colors.WHITE,
             expand=True,
-            height=200
+            height=280
         )
     
     def navigate_to(self, route: str):

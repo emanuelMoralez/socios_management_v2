@@ -173,11 +173,11 @@ class MainLayout(ft.Row):
                     ft.Container(content=logout_btn, padding=10)
                 ],
                 spacing=0,
-                expand=True  # ← IMPORTANTE: La columna debe expandirse
+                expand=True  # ← IMPORTANTE: La columna debe expandirse verticalmente
             ),
             width=200,
             bgcolor=ft.Colors.BLUE_800,
-            expand=True  # ← IMPORTANTE: El container debe expandirse verticalmente
+            # NO usar expand aquí - el width fijo se respeta sin expand
         )
         
         print(f"DEBUG: Sidebar creada con {len(menu_buttons)} botones")
