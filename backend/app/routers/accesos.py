@@ -67,21 +67,14 @@ async def validar_acceso_qr(
     if not miembro_id:
         logger.warning(f"[ERROR] QR inválido: {validacion.qr_code}")
         
-        # Registrar intento fallido
-        acceso = Acceso(
-            miembro_id=0,  # ID temporal para QR inválidos
-            fecha_hora=datetime.utcnow().isoformat(),
-            tipo_acceso=TipoAcceso.QR,
-            resultado=ResultadoAcceso.RECHAZADO,
-            ubicacion=validacion.ubicacion,
-            dispositivo_id=validacion.dispositivo_id,
-            qr_code_escaneado=validacion.qr_code,
-            qr_validacion_exitosa=False,
-            mensaje="QR inválido o corrupto",
-            registrado_por_id=current_user.id
+        # NO registrar en BD cuando el QR es completamente inválido (no se puede extraer ID)
+        # Solo logueamos el intento para auditoría en logs
+        logger.error(
+            f"[SECURITY] Intento de acceso con QR inválido - "
+            f"Portero: {current_user.username} - "
+            f"Dispositivo: {validacion.dispositivo_id} - "
+            f"Ubicación: {validacion.ubicacion}"
         )
-        db.add(acceso)
-        db.commit()
         
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

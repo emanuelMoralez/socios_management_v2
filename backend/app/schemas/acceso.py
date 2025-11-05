@@ -2,7 +2,7 @@
 Schemas para control de acceso con QR
 backend/app/schemas/acceso.py
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime, date
 
@@ -42,6 +42,21 @@ class ValidarQRResponse(BaseModel):
     Respuesta de validación de acceso
     ESTA RESPUESTA LA CONSUME LA APP MÓVIL
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "acceso_permitido": True,
+                "resultado": "permitido",
+                "nivel_alerta": "success",
+                "mensaje": "Acceso autorizado - Bienvenido",
+                "miembro_id": 1,
+                "nombre_completo": "Juan Pérez",
+                "numero_miembro": "M-00001",
+                "categoria": "Titular"
+            }
+        }
+    )
+    
     # Resultado
     acceso_permitido: bool = Field(
         ...,
@@ -70,29 +85,6 @@ class ValidarQRResponse(BaseModel):
     # Información adicional (opcional)
     deuda: Optional[float] = Field(None, description="Monto de deuda si aplica")
     dias_mora: Optional[int] = Field(None, description="Días de mora si aplica")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "acceso_permitido": True,
-                "resultado": "permitido",
-                "nivel_alerta": "success",
-                "mensaje": "Acceso autorizado - Bienvenido",
-                "miembro": {
-                    "id": 123,
-                    "numero_miembro": "M-00123",
-                    "nombre_completo": "Pérez, Juan",
-                    "foto_url": "https://...",
-                    "categoria": "Titular",
-                    "estado": "activo",
-                    "saldo_cuenta": 0.0
-                },
-                "acceso_id": 456,
-                "timestamp": "2025-01-15T10:30:00Z",
-                "deuda": None,
-                "dias_mora": 0
-            }
-        }
 
 
 # ==================== ACCESO MANUAL ====================
@@ -109,7 +101,7 @@ class RegistrarAccesoManual(BaseModel):
 
 # ==================== RESPONSE ====================
 class AccesoResponse(TimestampMixin):
-    """Schema para respuesta de acceso registrado"""
+    """Schema para respuesta de acceso registrado (sin datos del miembro anidados)"""
     id: int
     miembro_id: int
     fecha_hora: str  # ISO timestamp
@@ -121,19 +113,17 @@ class AccesoResponse(TimestampMixin):
     observaciones: Optional[str]
     registrado_por_id: Optional[int]
     
-    # Snapshot del estado
+    # Snapshot del estado (ya contiene info del miembro al momento del acceso)
     estado_miembro_snapshot: Optional[str]
     saldo_cuenta_snapshot: Optional[float]
     
-    # Datos del miembro (nested)
-    miembro: Optional[dict] = None
-    
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AccesoListItem(BaseModel):
     """Schema para lista de accesos (simplificado)"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     fecha_hora: str
     tipo_acceso: TipoAcceso
@@ -142,9 +132,6 @@ class AccesoListItem(BaseModel):
     miembro_id: int
     nombre_miembro: Optional[str] = None
     numero_miembro: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 # ==================== HISTORIAL ====================
@@ -230,11 +217,10 @@ class EventoAccesoUpdate(BaseModel):
 
 class EventoAccesoResponse(EventoAccesoBase, TimestampMixin):
     """Schema para respuesta de evento"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     total_asistentes: Optional[int] = 0
-    
-    class Config:
-        from_attributes = True
 
 
 # ==================== ALERTAS ====================
@@ -277,6 +263,8 @@ class ExportarAccesosRequest(BaseModel):
 # ==================== ESTADÍSTICAS DE ACCESO ====================
 class EstadisticasAcceso(BaseModel):
     """Estadísticas de accesos del día"""
+    model_config = ConfigDict(from_attributes=True)
+    
     total_hoy: int
     entradas_hoy: int
     salidas_hoy: int
@@ -286,6 +274,3 @@ class EstadisticasAcceso(BaseModel):
     accesos_por_hora: List[dict]
     ultimo_acceso: Optional[dict]
     fecha: str
-    
-    class Config:
-        from_attributes = True
