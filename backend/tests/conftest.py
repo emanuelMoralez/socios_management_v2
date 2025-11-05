@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 
 # Configurar entorno de pruebas ANTES de importar la app
-os.environ.setdefault("ENVIRONMENT", "development")
+os.environ.setdefault("ENVIRONMENT", "test")
 # Usamos una base SQLite temporal por ejecución
 _TEST_DB = os.path.join(tempfile.gettempdir(), f"gestion_socios_test_{int(time.time())}.db")
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
@@ -23,13 +23,19 @@ os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
 def client() -> Generator[TestClient, None, None]:
 	"""Cliente de pruebas FastAPI con SQLite temporal.
 
-	Crea el app y su ciclo de vida; en ENV=development, las tablas se crean
-	automáticamente en startup (ver app.main:lifespan).
+	Crea todas las tablas antes de ejecutar tests y las limpia al terminar.
 	"""
 	from app.main import app  # import tardío para respetar variables de entorno
-
+	from app.database import Base, engine
+	
+	# Crear todas las tablas antes de los tests
+	Base.metadata.create_all(bind=engine)
+	
 	with TestClient(app) as c:
 		yield c
+	
+	# Limpiar: eliminar todas las tablas después de los tests
+	Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
