@@ -307,3 +307,54 @@ def test_listar_pagos_por_fecha(client: TestClient):
     conceptos = [item["concepto"] for item in body["items"]]
     assert "Pago Ago 2030" in conceptos
     assert "Pago Sep 2030" not in conceptos
+
+
+def test_pago_rapido_con_descuento_y_estado_activo(client: TestClient):
+    headers = _auth_headers(client)
+    socio = _crear_categoria_y_miembro(client, headers)
+
+    # Marcar miembro como MOROSO
+    r_estado = client.post(
+        f"/api/miembros/{socio['id']}/cambiar-estado",
+        headers=headers,
+        json={
+            "miembro_id": socio["id"],
+            "nuevo_estado": "moroso",
+            "motivo": "Test de pago rápido con descuento",
+        },
+    )
+    assert r_estado.status_code == 200, r_estado.text
+    assert r_estado.json()["estado"] == "moroso"
+
+    # Consultar saldo antes
+    r_detalle = client.get(f"/api/miembros/{socio['id']}", headers=headers)
+    assert r_detalle.status_code == 200
+    saldo_antes = float(r_detalle.json()["saldo_cuenta"])
+
+    # Pago rápido con 15% de descuento sobre 200 => monto_final = 170
+    r_pago = client.post(
+        "/api/pagos/rapido",
+        headers=headers,
+        json={
+            "miembro_id": socio["id"],
+            "mes_periodo": 6,
+            "anio_periodo": 2031,
+            "monto": 200.0,
+            "metodo_pago": "efectivo",
+            "aplicar_descuento": True,
+            "porcentaje_descuento": 15.0,
+            "observaciones": "Promo",
+        },
+    )
+    assert r_pago.status_code == 201, r_pago.text
+    pago = r_pago.json()
+    assert pago["monto_final"] == pytest.approx(170.0, rel=1e-2)
+    assert pago["estado"] == "aprobado"
+    assert pago["numero_comprobante"] is not None
+
+    # Verificar saldo actualizado y estado ACTIVO
+    r_detalle2 = client.get(f"/api/miembros/{socio['id']}", headers=headers)
+    assert r_detalle2.status_code == 200
+    data2 = r_detalle2.json()
+    assert data2["estado"] == "activo"
+    assert float(data2["saldo_cuenta"]) == pytest.approx(saldo_antes + 170.0, rel=1e-2)
