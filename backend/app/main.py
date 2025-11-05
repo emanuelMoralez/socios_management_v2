@@ -16,7 +16,7 @@ from app.database import engine, Base, check_db_connection
 from app.config import settings
 
 # Importar todos los routers
-from app.routers import auth, miembros, accesos, pagos, usuarios, reportes, notificaciones
+from app.routers import auth, miembros, accesos, pagos, usuarios, reportes, notificaciones, auditoria
 
 # Configurar logging
 handlers = [logging.StreamHandler(sys.stdout)]
@@ -47,6 +47,52 @@ async def lifespan(app: FastAPI):
     logger.info("Iniciando Sistema de Gestión de Socios...")
     logger.info(f"Entorno: {settings.ENVIRONMENT}")
     logger.info(f"Versión: {settings.APP_VERSION}")
+
+    # Validación de configuración crítica en PRODUCCIÓN (fail-fast)
+    if settings.ENVIRONMENT == "production":
+        errors: list[str] = []
+
+        # SECRET_KEY y QR_SECRET_KEY robustos (no defaults inseguros, longitud mínima)
+        def _weak_key(k: str) -> bool:
+            return (
+                not k
+                or len(k) < 32
+                or "cambiala" in k.lower()
+                or k.strip() in {
+                    "tu-clave-secreta-super-segura-cambiala-en-produccion",
+                    "clave-para-qr-cambiala-tambien",
+                }
+            )
+
+        if _weak_key(settings.SECRET_KEY):
+            errors.append("SECRET_KEY es débil o usa el valor por defecto del repositorio")
+        if _weak_key(settings.QR_SECRET_KEY):
+            errors.append("QR_SECRET_KEY es débil o usa el valor por defecto del repositorio")
+
+        # DB debe ser Postgres (no SQLite) en producción
+        if settings.DATABASE_URL.startswith("sqlite"):
+            errors.append("DATABASE_URL apunta a SQLite; en producción debe usar PostgreSQL")
+
+        # CORS: no permitir localhost/127.0.0.1 ni comodín
+        bad_origins = [o for o in settings.ALLOWED_ORIGINS if (
+            o == "*" or "localhost" in o or "127.0.0.1" in o
+        )]
+        if bad_origins:
+            errors.append(
+                f"ALLOWED_ORIGINS contiene orígenes no válidos para producción: {bad_origins}"
+            )
+
+        # DEBUG debe estar deshabilitado en producción
+        if settings.DEBUG:
+            errors.append("DEBUG debe ser False en producción")
+
+        if errors:
+            for e in errors:
+                logger.error(f"[CONFIG] {e}")
+            # Abortamos inicio de la app para evitar un despliegue inseguro
+            raise RuntimeError(
+                "Configuración insegura/incorrecta detectada en producción. Revisa las variables de entorno."
+            )
     
     # Verificar conexión a base de datos
     if check_db_connection():
@@ -72,12 +118,16 @@ async def lifespan(app: FastAPI):
 
 
 # ==================== APP ====================
+# Deshabilitar documentación pública en producción
+_docs_url = None if settings.ENVIRONMENT == "production" else "/docs"
+_redoc_url = None if settings.ENVIRONMENT == "production" else "/redoc"
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="API para gestión de socios de clubes y cooperativas",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
     lifespan=lifespan
 )
 
@@ -237,6 +287,12 @@ app.include_router(
     notificaciones.router,
     prefix="/api/notificaciones",
     tags=["[EMAIL] Notificaciones"]
+)
+
+app.include_router(
+    auditoria.router,
+    prefix="/api/auditoria",
+    tags=["[REPORT] Auditoría"]
 )
 
 

@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     LOG_FILE: str = "logs/app.log"
     
+    # ==================== AUDITORÍA ====================
+    # Días de retención de auditoría (90 días por defecto)
+    AUDIT_RETENTION_DAYS: int = 90
+    # Directorio para archivos de auditoría
+    AUDIT_ARCHIVE_DIR: str = "archives/audit"
+    
     # ==================== INTEGRACIONES (Fase 3) ====================
     # MercadoPago
     MP_ACCESS_TOKEN: Optional[str] = None

@@ -55,6 +55,10 @@ class Usuario(BaseModel, SoftDeleteMixin):
         back_populates="registrado_por",
         foreign_keys="Acceso.registrado_por_id"
     )
+    actividades = relationship(
+        "Actividad",
+        back_populates="usuario"
+    )
     
     @property
     def nombre_completo(self):

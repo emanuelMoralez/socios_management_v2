@@ -126,13 +126,32 @@ class DashboardView(ft.Column):
             height=280
         )
         
+        # Widget de actividad reciente (solo admin)
+        self.actividad_container = None
+        if self.user and self.user.get("rol") in ["super_admin", "administrador"]:
+            self.actividad_container = ft.Container(
+                content=ft.Column(
+                    [ft.ProgressRing(width=30, height=30)],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER
+                ),
+                padding=15,
+                border=ft.border.all(1, ft.Colors.GREY_300),
+                border_radius=8,
+                bgcolor=ft.Colors.WHITE,
+                expand=True,
+                height=280
+            )
+        
         acciones_rapidas = self._create_acciones_rapidas()
         
+        bottom_row_items = [self.alertas_container]
+        if self.actividad_container:
+            bottom_row_items.append(self.actividad_container)
+        bottom_row_items.append(acciones_rapidas)
+        
         bottom_row = ft.Row(
-            [
-                self.alertas_container,
-                acciones_rapidas,
-            ],
+            bottom_row_items,
             spacing=10
         )
         
@@ -167,6 +186,10 @@ class DashboardView(ft.Column):
             
             # Actualizar alertas
             await self._update_alertas()
+            
+            # Actualizar actividad reciente (solo admin)
+            if self.actividad_container:
+                await self._update_actividad_reciente()
             
         except Exception as e:
             self.show_error(f"Error al cargar dashboard: {e}")
@@ -561,6 +584,132 @@ class DashboardView(ft.Column):
             bgcolor=bgcolor,
             border_radius=5,
             padding=10
+        )
+    
+    async def _update_actividad_reciente(self):
+        """Actualizar widget de actividad reciente"""
+        try:
+            # Obtener últimas 15 actividades
+            response = await api_client.get_actividades(
+                tipo=None,
+                severidad=None,
+                usuario_id=None,
+                page=1,
+                page_size=15
+            )
+            
+            actividades = response.get("data", [])
+            
+            # Crear lista de actividades
+            actividad_items = []
+            for act in actividades:
+                actividad_items.append(self._create_actividad_item(act))
+            
+            if not actividad_items:
+                actividad_items.append(
+                    ft.Text("No hay actividad reciente", 
+                           size=12, 
+                           color=ft.Colors.GREY_600,
+                           text_align=ft.TextAlign.CENTER)
+                )
+            
+            # Actualizar container
+            self.actividad_container.content = ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text("📋 Actividad Reciente", size=14, weight=ft.FontWeight.BOLD),
+                            ft.IconButton(
+                                icon=ft.Icons.REFRESH,
+                                icon_size=18,
+                                tooltip="Actualizar",
+                                on_click=lambda _: self.page.run_task(self._update_actividad_reciente)
+                            )
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    ),
+                    ft.Divider(height=1),
+                    ft.Column(
+                        actividad_items,
+                        spacing=5,
+                        scroll=ft.ScrollMode.AUTO,
+                        height=220
+                    )
+                ],
+                spacing=8
+            )
+            self.actividad_container.update()
+            
+        except Exception as e:
+            if self.actividad_container:
+                self.actividad_container.content = ft.Column(
+                    [
+                        ft.Text("📋 Actividad Reciente", size=14, weight=ft.FontWeight.BOLD),
+                        ft.Divider(height=1),
+                        ft.Text(f"Error: {e}", size=11, color=ft.Colors.RED)
+                    ],
+                    spacing=8
+                )
+                self.actividad_container.update()
+    
+    def _create_actividad_item(self, actividad: dict):
+        """Crear item de actividad"""
+        # Mapeo de tipos a iconos
+        tipo_icons = {
+            "LOGIN_EXITOSO": "✅",
+            "LOGIN_FALLIDO": "❌",
+            "MIEMBRO_CREADO": "👤➕",
+            "MIEMBRO_EDITADO": "✏️",
+            "MIEMBRO_ELIMINADO": "👤❌",
+            "PAGO_REGISTRADO": "💵",
+            "PAGO_ANULADO": "💵❌",
+            "ACCESO_PERMITIDO": "🟢",
+            "ACCESO_DENEGADO": "🔴",
+        }
+        
+        # Mapeo de severidad a colores
+        severidad_colors = {
+            "INFO": ft.Colors.BLUE_50,
+            "WARNING": ft.Colors.ORANGE_50,
+            "ERROR": ft.Colors.RED_50,
+            "CRITICAL": ft.Colors.RED_100,
+        }
+        
+        tipo = actividad.get("tipo", "")
+        severidad = actividad.get("severidad", "INFO")
+        descripcion = actividad.get("descripcion", "")
+        usuario = actividad.get("usuario_username", "Sistema")
+        fecha = actividad.get("fecha_hora", "")
+        
+        # Formatear fecha (solo hora si es hoy)
+        from datetime import datetime
+        try:
+            dt = datetime.fromisoformat(fecha.replace("Z", "+00:00"))
+            fecha_str = dt.strftime("%H:%M")
+        except:
+            fecha_str = fecha[:5] if len(fecha) > 5 else fecha
+        
+        icon = tipo_icons.get(tipo, "📌")
+        bgcolor = severidad_colors.get(severidad, ft.Colors.GREY_50)
+        
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Text(icon, size=14),
+                    ft.Column(
+                        [
+                            ft.Text(descripcion, size=11, weight=ft.FontWeight.W_500, max_lines=1),
+                            ft.Text(f"{usuario} • {fecha_str}", size=10, color=ft.Colors.GREY_600),
+                        ],
+                        spacing=2,
+                        expand=True
+                    )
+                ],
+                spacing=8
+            ),
+            bgcolor=bgcolor,
+            border_radius=5,
+            padding=8
         )
     
     def _create_acciones_rapidas(self):

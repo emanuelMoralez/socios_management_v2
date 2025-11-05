@@ -3,14 +3,16 @@ Router de control de acceso - Validación QR
 ESTE ES EL ENDPOINT MÁS CRÍTICO PARA LA APP MÓVIL
 backend/app/routers/accesos.py
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 from sqlalchemy import desc, func
 from datetime import datetime, date
 from typing import List, Optional
 import logging
 
 from app.database import get_db
+from app.services.audit_service import AuditService
 from app.schemas.acceso import (
     ValidarQRRequest,
     ValidarQRResponse,
@@ -38,6 +40,7 @@ router = APIRouter()
 @router.post("/validar-qr", response_model=ValidarQRResponse)
 async def validar_acceso_qr(
     validacion: ValidarQRRequest,
+    request: Request,
     current_user: Usuario = Depends(require_portero),
     db: Session = Depends(get_db)
 ):
@@ -199,6 +202,16 @@ async def validar_acceso_qr(
     db.commit()
     db.refresh(acceso)
     
+    # Registrar actividad de auditoría
+    AuditService.registrar_acceso(
+        db=db,
+        acceso_id=acceso.id,
+        miembro_nombre=f"{miembro.numero_miembro} - {miembro.nombre_completo}",
+        permitido=acceso_permitido,
+        motivo=mensaje if not acceso_permitido else None,
+        request=request
+    )
+    
     logger.info(
         f"{'[OK]' if acceso_permitido else '[ERROR]'} Acceso {resultado.value} - "
         f"Miembro: {miembro.numero_miembro} - "
@@ -233,6 +246,7 @@ async def validar_acceso_qr(
 @router.post("/manual", response_model=AccesoResponse)
 async def registrar_acceso_manual(
     acceso_data: RegistrarAccesoManual,
+    request: Request,
     current_user: Usuario = Depends(require_portero),
     db: Session = Depends(get_db)
 ):
@@ -272,6 +286,16 @@ async def registrar_acceso_manual(
     db.commit()
     db.refresh(acceso)
     
+    # Registrar actividad de auditoría
+    AuditService.registrar_acceso(
+        db=db,
+        acceso_id=acceso.id,
+        miembro_nombre=f"{miembro.numero_miembro} - {miembro.nombre_completo}",
+        permitido=acceso_permitido,
+        motivo=acceso_data.observaciones if not acceso_permitido else None,
+        request=request
+    )
+    
     logger.info(f" Acceso manual registrado - Miembro: {miembro.numero_miembro}")
     
     return acceso
@@ -295,7 +319,8 @@ async def obtener_historial_accesos(
     - fecha_inicio/fecha_fin: Rango de fechas
     - resultado: Filtrar por resultado (permitido, rechazado, advertencia)
     """
-    query = db.query(Acceso)
+    # Evitar N+1 cargando miembros asociados
+    query = db.query(Acceso).options(selectinload(Acceso.miembro))
     
     # Aplicar filtros
     if miembro_id:
@@ -319,7 +344,7 @@ async def obtener_historial_accesos(
     # Convertir a lista simplificada
     items = []
     for acceso in accesos:
-        miembro = db.query(Miembro).filter(Miembro.id == acceso.miembro_id).first()
+        miembro = acceso.miembro  # precargado por selectinload
         items.append(AccesoListItem(
             id=acceso.id,
             fecha_hora=acceso.fecha_hora,
@@ -378,11 +403,11 @@ async def obtener_resumen_accesos(
     ).scalar() or 0
     
     # Últimos accesos
-    ultimos = db.query(Acceso).order_by(desc(Acceso.fecha_hora)).limit(10).all()
+    ultimos = db.query(Acceso).options(selectinload(Acceso.miembro)).order_by(desc(Acceso.fecha_hora)).limit(10).all()
     
     ultimos_accesos = []
     for acceso in ultimos:
-        miembro = db.query(Miembro).filter(Miembro.id == acceso.miembro_id).first()
+        miembro = acceso.miembro
         ultimos_accesos.append(AccesoListItem(
             id=acceso.id,
             fecha_hora=acceso.fecha_hora,
@@ -477,16 +502,13 @@ async def obtener_estadisticas_accesos(
         })
     
     # Último acceso
-    ultimo_acceso = db.query(Acceso).order_by(
+    ultimo_acceso = db.query(Acceso).options(selectinload(Acceso.miembro)).order_by(
         desc(Acceso.fecha_hora)
     ).first()
     
     ultimo_acceso_info = None
     if ultimo_acceso:
-        miembro = db.query(Miembro).filter(
-            Miembro.id == ultimo_acceso.miembro_id
-        ).first()
-        
+        miembro = ultimo_acceso.miembro
         if miembro:
             ultimo_acceso_info = {
                 "fecha_hora": ultimo_acceso.fecha_hora,

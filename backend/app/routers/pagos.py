@@ -2,8 +2,9 @@
 Router de gestión de pagos y movimientos
 backend/app/routers/pagos.py
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 from sqlalchemy import func, extract, and_
 from datetime import date, datetime
 from typing import List, Optional
@@ -11,6 +12,7 @@ from calendar import monthrange
 import logging
 
 from app.database import get_db
+from app.services.audit_service import AuditService
 from app.schemas.pago import (
     PagoCreate,
     PagoUpdate,
@@ -38,105 +40,127 @@ router = APIRouter()
 @router.post("", response_model=PagoResponse, status_code=status.HTTP_201_CREATED)
 async def registrar_pago(
     pago_data: PagoCreate,
+    request: Request,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
     """
     Registrar un pago completo con todos los detalles
     """
-    # Verificar que el miembro exista
-    miembro = db.query(Miembro).filter(Miembro.id == pago_data.miembro_id).first()
-    
-    if not miembro:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Miembro no encontrado"
+    try:
+        # Verificar que el miembro exista
+        miembro = db.query(Miembro).filter(Miembro.id == pago_data.miembro_id).first()
+        if not miembro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Miembro no encontrado"
+            )
+
+        # Crear pago
+        nuevo_pago = Pago(
+            miembro_id=pago_data.miembro_id,
+            tipo=pago_data.tipo,
+            concepto=pago_data.concepto,
+            descripcion=pago_data.descripcion,
+            monto=pago_data.monto,
+            descuento=pago_data.descuento,
+            recargo=pago_data.recargo,
+            metodo_pago=pago_data.metodo_pago,
+            fecha_pago=pago_data.fecha_pago,
+            fecha_vencimiento=pago_data.fecha_vencimiento,
+            fecha_periodo=pago_data.fecha_periodo,
+            observaciones=pago_data.observaciones,
+            estado=EstadoPago.APROBADO,
+            registrado_por_id=current_user.id
         )
-    
-    # Crear pago
-    nuevo_pago = Pago(
-        miembro_id=pago_data.miembro_id,
-        tipo=pago_data.tipo,
-        concepto=pago_data.concepto,
-        descripcion=pago_data.descripcion,
-        monto=pago_data.monto,
-        descuento=pago_data.descuento,
-        recargo=pago_data.recargo,
-        metodo_pago=pago_data.metodo_pago,
-        fecha_pago=pago_data.fecha_pago,
-        fecha_vencimiento=pago_data.fecha_vencimiento,
-        fecha_periodo=pago_data.fecha_periodo,
-        observaciones=pago_data.observaciones,
-        estado=EstadoPago.APROBADO,
-        registrado_por_id=current_user.id
-    )
-    
-    # Calcular monto final
-    nuevo_pago.calcular_monto_final()
-    
-    db.add(nuevo_pago)
-    db.flush()  # Para obtener el ID antes del commit
-    
-    # Generar número de comprobante
-    nuevo_pago.numero_comprobante = nuevo_pago.generar_numero_comprobante()
-    
-    # Actualizar saldo del miembro
-    miembro.saldo_cuenta += nuevo_pago.monto_final
-    
-    # Si es pago de cuota, actualizar fecha de última cuota
-    if pago_data.tipo == TipoPago.CUOTA:
-        miembro.ultima_cuota_pagada = pago_data.fecha_periodo or date.today()
-        
-        # Calcular próximo vencimiento (asumiendo mensual)
-        if miembro.ultima_cuota_pagada:
-            mes = miembro.ultima_cuota_pagada.month
-            anio = miembro.ultima_cuota_pagada.year
-            
-            # Próximo mes
-            mes += 1
-            if mes > 12:
-                mes = 1
-                anio += 1
-            
-            # Día de vencimiento (ej: día 10 de cada mes)
-            dia_vencimiento = 10
-            ultimo_dia = monthrange(anio, mes)[1]
-            dia = min(dia_vencimiento, ultimo_dia)
-            
-            miembro.proximo_vencimiento = date(anio, mes, dia)
-    
-    # Si el saldo se vuelve positivo o >= 0, cambiar estado a activo
-    if miembro.saldo_cuenta >= 0 and miembro.estado == EstadoMiembro.MOROSO:
-        miembro.estado = EstadoMiembro.ACTIVO
-    
-    # Registrar en movimiento de caja
-    movimiento = MovimientoCaja(
-        tipo="ingreso",
-        concepto=nuevo_pago.concepto,
-        descripcion=nuevo_pago.descripcion,
-        monto=nuevo_pago.monto_final,
-        categoria_contable="Cuotas y Pagos",
-        fecha_movimiento=nuevo_pago.fecha_pago,
-        numero_comprobante=nuevo_pago.numero_comprobante,
-        pago_id=nuevo_pago.id,
-        registrado_por_id=current_user.id
-    )
-    db.add(movimiento)
-    
-    db.commit()
-    db.refresh(nuevo_pago)
-    
-    logger.info(
-        f"[MONEY] Pago registrado: {nuevo_pago.numero_comprobante} - "
-        f"Miembro: {miembro.numero_miembro} - ${nuevo_pago.monto_final}"
-    )
-    
-    return nuevo_pago
+
+        # Calcular monto final
+        nuevo_pago.calcular_monto_final()
+
+        db.add(nuevo_pago)
+        db.flush()  # Para obtener el ID antes del commit
+
+        # Generar número de comprobante
+        nuevo_pago.numero_comprobante = nuevo_pago.generar_numero_comprobante()
+
+        # Actualizar saldo del miembro
+        miembro.saldo_cuenta += nuevo_pago.monto_final
+
+        # Si es pago de cuota, actualizar fecha de última cuota
+        if pago_data.tipo == TipoPago.CUOTA:
+            miembro.ultima_cuota_pagada = pago_data.fecha_periodo or date.today()
+
+            # Calcular próximo vencimiento (asumiendo mensual)
+            if miembro.ultima_cuota_pagada:
+                mes = miembro.ultima_cuota_pagada.month
+                anio = miembro.ultima_cuota_pagada.year
+
+                # Próximo mes
+                mes += 1
+                if mes > 12:
+                    mes = 1
+                    anio += 1
+
+                # Día de vencimiento (ej: día 10 de cada mes)
+                dia_vencimiento = 10
+                ultimo_dia = monthrange(anio, mes)[1]
+                dia = min(dia_vencimiento, ultimo_dia)
+
+                miembro.proximo_vencimiento = date(anio, mes, dia)
+
+        # Si el saldo se vuelve positivo o >= 0, cambiar estado a activo
+        if miembro.saldo_cuenta >= 0 and miembro.estado == EstadoMiembro.MOROSO:
+            miembro.estado = EstadoMiembro.ACTIVO
+
+        # Registrar en movimiento de caja
+        movimiento = MovimientoCaja(
+            tipo="ingreso",
+            concepto=nuevo_pago.concepto,
+            descripcion=nuevo_pago.descripcion,
+            monto=nuevo_pago.monto_final,
+            categoria_contable="Cuotas y Pagos",
+            fecha_movimiento=nuevo_pago.fecha_pago,
+            numero_comprobante=nuevo_pago.numero_comprobante,
+            pago_id=nuevo_pago.id,
+            registrado_por_id=current_user.id
+        )
+        db.add(movimiento)
+
+        db.commit()
+        db.refresh(nuevo_pago)
+
+        # Registrar auditoría (no bloquear por fallos)
+        try:
+            AuditService.registrar_pago(
+                db=db,
+                pago_id=nuevo_pago.id,
+                miembro_nombre=miembro.nombre_completo,
+                monto=nuevo_pago.monto_final,
+                usuario_id=current_user.id,
+                request=request
+            )
+        except Exception as _e:
+            logger.warning(f"[AUDIT] Fallo registrando auditoría de pago {nuevo_pago.id}: {_e}")
+
+        logger.info(
+            f"[MONEY] Pago registrado: {nuevo_pago.numero_comprobante} - "
+            f"Miembro: {miembro.numero_miembro} - ${nuevo_pago.monto_final}"
+        )
+
+        return nuevo_pago
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[ERROR] Error registrando pago miembro_id={pago_data.miembro_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al registrar pago")
 
 
 @router.post("/rapido", response_model=PagoResponse, status_code=status.HTTP_201_CREATED)
 async def registrar_pago_rapido(
     pago_data: RegistrarPagoRapido,
+    request: Request,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -145,81 +169,98 @@ async def registrar_pago_rapido(
     
     Simplificado para agilizar el cobro en ventanilla.
     """
-    # Verificar miembro
-    miembro = db.query(Miembro).filter(Miembro.id == pago_data.miembro_id).first()
-    
-    if not miembro:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Miembro no encontrado"
+    try:
+        # Verificar miembro
+        miembro = db.query(Miembro).filter(Miembro.id == pago_data.miembro_id).first()
+        if not miembro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Miembro no encontrado"
+            )
+
+        # Calcular descuento si aplica
+        monto = pago_data.monto
+        descuento = 0.0
+        if pago_data.aplicar_descuento:
+            descuento = monto * (pago_data.porcentaje_descuento / 100)
+
+        # Fecha del período
+        fecha_periodo = date(pago_data.anio_periodo, pago_data.mes_periodo, 1)
+
+        # Concepto automático
+        meses = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ]
+        concepto = f"Cuota {meses[pago_data.mes_periodo - 1]} {pago_data.anio_periodo}"
+
+        # Crear pago
+        nuevo_pago = Pago(
+            miembro_id=pago_data.miembro_id,
+            tipo=TipoPago.CUOTA,
+            concepto=concepto,
+            monto=monto,
+            descuento=descuento,
+            recargo=0.0,
+            metodo_pago=pago_data.metodo_pago,
+            fecha_pago=date.today(),
+            fecha_periodo=fecha_periodo,
+            observaciones=pago_data.observaciones,
+            estado=EstadoPago.APROBADO,
+            registrado_por_id=current_user.id
         )
-    
-    # Calcular descuento si aplica
-    monto = pago_data.monto
-    descuento = 0.0
-    
-    if pago_data.aplicar_descuento:
-        descuento = monto * (pago_data.porcentaje_descuento / 100)
-    
-    # Fecha del período
-    fecha_periodo = date(pago_data.anio_periodo, pago_data.mes_periodo, 1)
-    
-    # Concepto automático
-    meses = [
-        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-    ]
-    concepto = f"Cuota {meses[pago_data.mes_periodo - 1]} {pago_data.anio_periodo}"
-    
-    # Crear pago
-    nuevo_pago = Pago(
-        miembro_id=pago_data.miembro_id,
-        tipo=TipoPago.CUOTA,
-        concepto=concepto,
-        monto=monto,
-        descuento=descuento,
-        recargo=0.0,
-        metodo_pago=pago_data.metodo_pago,
-        fecha_pago=date.today(),
-        fecha_periodo=fecha_periodo,
-        observaciones=pago_data.observaciones,
-        estado=EstadoPago.APROBADO,
-        registrado_por_id=current_user.id
-    )
-    
-    nuevo_pago.calcular_monto_final()
-    
-    db.add(nuevo_pago)
-    db.flush()
-    
-    nuevo_pago.numero_comprobante = nuevo_pago.generar_numero_comprobante()
-    
-    # Actualizar miembro
-    miembro.saldo_cuenta += nuevo_pago.monto_final
-    miembro.ultima_cuota_pagada = fecha_periodo
-    
-    if miembro.saldo_cuenta >= 0 and miembro.estado == EstadoMiembro.MOROSO:
-        miembro.estado = EstadoMiembro.ACTIVO
-    
-    # Movimiento de caja
-    movimiento = MovimientoCaja(
-        tipo="ingreso",
-        concepto=concepto,
-        monto=nuevo_pago.monto_final,
-        categoria_contable="Cuotas",
-        fecha_movimiento=date.today(),
-        numero_comprobante=nuevo_pago.numero_comprobante,
-        pago_id=nuevo_pago.id,
-        registrado_por_id=current_user.id
-    )
-    db.add(movimiento)
-    
-    db.commit()
-    db.refresh(nuevo_pago)
-    
-    logger.info(f" Pago rápido: {nuevo_pago.numero_comprobante}")
-    
-    return nuevo_pago
+
+        nuevo_pago.calcular_monto_final()
+        db.add(nuevo_pago)
+        db.flush()
+
+        nuevo_pago.numero_comprobante = nuevo_pago.generar_numero_comprobante()
+
+        # Actualizar miembro
+        miembro.saldo_cuenta += nuevo_pago.monto_final
+        miembro.ultima_cuota_pagada = fecha_periodo
+
+        if miembro.saldo_cuenta >= 0 and miembro.estado == EstadoMiembro.MOROSO:
+            miembro.estado = EstadoMiembro.ACTIVO
+
+        # Movimiento de caja
+        movimiento = MovimientoCaja(
+            tipo="ingreso",
+            concepto=concepto,
+            monto=nuevo_pago.monto_final,
+            categoria_contable="Cuotas",
+            fecha_movimiento=date.today(),
+            numero_comprobante=nuevo_pago.numero_comprobante,
+            pago_id=nuevo_pago.id,
+            registrado_por_id=current_user.id
+        )
+        db.add(movimiento)
+
+        db.commit()
+        db.refresh(nuevo_pago)
+        
+        # Registrar auditoría (no bloquear por fallos)
+        try:
+            AuditService.registrar_pago(
+                db=db,
+                pago_id=nuevo_pago.id,
+                miembro_nombre=miembro.nombre_completo,
+                monto=nuevo_pago.monto_final,
+                usuario_id=current_user.id,
+                request=request
+            )
+        except Exception as _e:
+            logger.warning(f"[AUDIT] Fallo registrando auditoría de pago {nuevo_pago.id}: {_e}")
+        
+        logger.info(f" Pago rápido: {nuevo_pago.numero_comprobante}")
+        return nuevo_pago
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[ERROR] Error en pago rápido miembro_id={pago_data.miembro_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al registrar pago rápido")
 
 
 @router.get("", response_model=PaginatedResponse[PagoListItem])
@@ -236,7 +277,8 @@ async def listar_pagos(
     """
     Listar pagos con filtros y paginación
     """
-    query = db.query(Pago)
+    # Evitar N+1 cargando los miembros asociados en un solo round-trip
+    query = db.query(Pago).options(selectinload(Pago.miembro))
     
     # Filtros
     if miembro_id:
@@ -260,10 +302,10 @@ async def listar_pagos(
     # Paginación
     pagos = query.order_by(Pago.fecha_pago.desc()).offset(pagination.skip).limit(pagination.limit).all()
     
-    # Convertir a lista
+    # Convertir a lista sin consultas adicionales por cada pago (usa relación precargada)
     items = []
     for pago in pagos:
-        miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
+        miembro = pago.miembro  # precargado por selectinload
         items.append(PagoListItem(
             id=pago.id,
             numero_comprobante=pago.numero_comprobante,
@@ -460,6 +502,7 @@ async def obtener_pago(
 async def anular_pago(
     pago_id: int,
     anular_data: AnularPagoRequest,
+    request: Request,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -468,6 +511,97 @@ async def anular_pago(
     
     Revierte el saldo del miembro y marca el pago como cancelado.
     """
+    try:
+        pago = db.query(Pago).filter(Pago.id == pago_id).first()
+        if not pago:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pago no encontrado"
+            )
+
+        if pago.estado == EstadoPago.CANCELADO:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El pago ya está anulado"
+            )
+
+        # Obtener miembro
+        miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
+        if not miembro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Miembro no encontrado"
+            )
+
+        # Revertir saldo
+        miembro.saldo_cuenta -= pago.monto_final
+
+        # Si el saldo se vuelve negativo, marcar como moroso
+        if miembro.saldo_cuenta < 0:
+            miembro.estado = EstadoMiembro.MOROSO
+
+        # Anular pago
+        pago.estado = EstadoPago.CANCELADO
+        pago.observaciones = f"{pago.observaciones or ''}\n[ANULADO] {anular_data.motivo}"
+
+        # Registrar movimiento de egreso (devolución)
+        movimiento = MovimientoCaja(
+            tipo="egreso",
+            concepto=f"ANULACIÓN - {pago.concepto}",
+            descripcion=anular_data.motivo,
+            monto=pago.monto_final,
+            categoria_contable="Devoluciones",
+            fecha_movimiento=date.today(),
+            numero_comprobante=pago.numero_comprobante,
+            pago_id=pago.id,
+            registrado_por_id=current_user.id
+        )
+        db.add(movimiento)
+
+        db.commit()
+
+        # Registrar auditoría
+        AuditService.registrar_pago_anulado(
+            db=db,
+            pago_id=pago.id,
+            motivo=anular_data.motivo,
+            usuario_id=current_user.id,
+            request=request
+        )
+
+        logger.warning(
+            f"[WARN] Pago anulado: {pago.numero_comprobante} - "
+            f"Motivo: {anular_data.motivo}"
+        )
+
+        return MessageResponse(
+            message="Pago anulado correctamente",
+            detail=f"Se revirtió ${pago.monto_final} del saldo del miembro"
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[ERROR] Error anulando pago pago_id={pago_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al anular pago")
+
+
+@router.get("/{pago_id}/recibo-pdf")
+async def descargar_recibo_pdf(
+    pago_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Descargar recibo de pago en formato PDF
+    
+    Genera un comprobante PDF con los detalles del pago.
+    """
+    from app.services.pdf_service import PDFService
+    from fastapi.responses import Response
+    
+    # Obtener pago
     pago = db.query(Pago).filter(Pago.id == pago_id).first()
     
     if not pago:
@@ -476,54 +610,35 @@ async def anular_pago(
             detail="Pago no encontrado"
         )
     
-    if pago.estado == EstadoPago.CANCELADO:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El pago ya está anulado"
+    # Generar PDF
+    try:
+        pdf_buffer = PDFService.generar_recibo_pago(
+            numero_recibo=pago.numero_comprobante or f"REC-{pago.id:05d}",
+            fecha_pago=pago.fecha_pago if isinstance(pago.fecha_pago, datetime) else datetime.combine(pago.fecha_pago, datetime.min.time()),
+            miembro_nombre=pago.miembro.nombre_completo if pago.miembro else "N/A",
+            miembro_numero=pago.miembro.numero_miembro if pago.miembro else "N/A",
+            concepto=pago.concepto,
+            monto=pago.monto_final,
+            metodo_pago=pago.metodo_pago.value,
+            usuario_nombre=pago.registrado_por.username if pago.registrado_por else "Sistema",
+            observaciones=pago.observaciones
+        )
+        
+        filename = f"recibo_{pago.numero_comprobante or pago.id}.pdf"
+        
+        logger.info(f"[OK] Recibo PDF generado: {filename}")
+        
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
         )
     
-    # Obtener miembro
-    miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
-    
-    if not miembro:
+    except Exception as e:
+        logger.error(f"[ERROR] Error generando PDF para pago {pago_id}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Miembro no encontrado"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al generar el recibo PDF"
         )
-    
-    # Revertir saldo
-    miembro.saldo_cuenta -= pago.monto_final
-    
-    # Si el saldo se vuelve negativo, marcar como moroso
-    if miembro.saldo_cuenta < 0:
-        miembro.estado = EstadoMiembro.MOROSO
-    
-    # Anular pago
-    pago.estado = EstadoPago.CANCELADO
-    pago.observaciones = f"{pago.observaciones or ''}\n[ANULADO] {anular_data.motivo}"
-    
-    # Registrar movimiento de egreso (devolución)
-    movimiento = MovimientoCaja(
-        tipo="egreso",
-        concepto=f"ANULACIÓN - {pago.concepto}",
-        descripcion=anular_data.motivo,
-        monto=pago.monto_final,
-        categoria_contable="Devoluciones",
-        fecha_movimiento=date.today(),
-        numero_comprobante=pago.numero_comprobante,
-        pago_id=pago.id,
-        registrado_por_id=current_user.id
-    )
-    db.add(movimiento)
-    
-    db.commit()
-    
-    logger.warning(
-        f"[WARN] Pago anulado: {pago.numero_comprobante} - "
-        f"Motivo: {anular_data.motivo}"
-    )
-    
-    return MessageResponse(
-        message="Pago anulado correctamente",
-        detail=f"Se revirtió ${pago.monto_final} del saldo del miembro"
-    )

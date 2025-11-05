@@ -27,6 +27,11 @@ from app.models.acceso import (
     TipoAcceso,
     ResultadoAcceso
 )
+from app.models.actividad import (
+    Actividad,
+    TipoActividad,
+    NivelSeveridad
+)
 
 __all__ = [
     # Base
@@ -58,4 +63,9 @@ __all__ = [
     "AccesoEvento",
     "TipoAcceso",
     "ResultadoAcceso",
+    
+    # Actividad
+    "Actividad",
+    "TipoActividad",
+    "NivelSeveridad",
 ]

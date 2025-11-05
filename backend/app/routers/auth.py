@@ -2,7 +2,7 @@
 Router de autenticación - Login, registro, tokens
 backend/app/routers/auth.py
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from datetime import timedelta
 import logging
@@ -16,6 +16,7 @@ from app.schemas.auth import (
 )
 from app.schemas.usuario import UsuarioCreate, UsuarioResponse
 from app.services.auth_service import AuthService
+from app.services.audit_service import AuditService
 from app.utils.dependencies import get_current_user
 from app.models.usuario import Usuario
 from app.config import settings
@@ -28,6 +29,7 @@ router = APIRouter()
 @router.post("/login", response_model=TokenResponse)
 async def login(
     credentials: LoginRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -46,12 +48,27 @@ async def login(
     )
     
     if not usuario:
+        # Registrar intento fallido
+        AuditService.registrar_login_fallido(
+            db=db,
+            username=credentials.username,
+            motivo="Credenciales incorrectas",
+            request=request
+        )
         logger.warning(f"Intento de login fallido: {credentials.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Registrar login exitoso
+    AuditService.registrar_login_exitoso(
+        db=db,
+        usuario_id=usuario.id,
+        username=usuario.username,
+        request=request
+    )
     
     # Generar tokens
     tokens = AuthService.generar_tokens(usuario)

@@ -5,6 +5,7 @@ backend/app/routers/reportes.py
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 from sqlalchemy import func, and_, extract, case
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -738,7 +739,8 @@ async def exportar_pagos_excel(
     Exportar lista de pagos a Excel
     """
     try:
-        query = db.query(Pago)
+        # Evitar N+1 cargando miembro relacionado
+        query = db.query(Pago).options(selectinload(Pago.miembro))
         
         if fecha_desde:
             fecha_desde_obj = datetime.fromisoformat(fecha_desde).date()
@@ -756,7 +758,7 @@ async def exportar_pagos_excel(
         # Convertir a diccionarios
         pagos_data = []
         for pago in pagos:
-            miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
+            miembro = pago.miembro  # precargado por selectinload
             pagos_data.append({
                 "numero_comprobante": pago.numero_comprobante,
                 "fecha_pago": pago.fecha_pago,
@@ -849,8 +851,8 @@ async def exportar_accesos_excel(
     Exportar accesos a Excel
     """
     try:
-        # Construir query
-        query = db.query(Acceso)
+        # Construir query evitando N+1 cargando miembro relacionado
+        query = db.query(Acceso).options(selectinload(Acceso.miembro))
         
         if fecha_inicio:
             query = query.filter(Acceso.fecha_hora >= fecha_inicio)
@@ -863,7 +865,7 @@ async def exportar_accesos_excel(
         # Convertir a diccionarios
         accesos_data = []
         for acceso in accesos:
-            miembro = db.query(Miembro).filter(Miembro.id == acceso.miembro_id).first()
+            miembro = acceso.miembro  # precargado por selectinload
             accesos_data.append({
                 "fecha_hora": acceso.fecha_hora,
                 "nombre_miembro": miembro.nombre_completo if miembro else "Desconocido",

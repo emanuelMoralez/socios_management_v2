@@ -2,7 +2,7 @@
 Router de gestión de miembros/socios
 backend/app/routers/miembros.py
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 from datetime import date, datetime
@@ -11,6 +11,8 @@ import logging
 import base64
 
 from app.database import get_db
+from app.services.audit_service import AuditService
+from app.models.actividad import TipoActividad
 from app.schemas.miembro import (
     MiembroCreate,
     MiembroUpdate,
@@ -166,6 +168,7 @@ async def eliminar_categoria(
 @router.post("", response_model=MiembroResponse, status_code=status.HTTP_201_CREATED)
 async def crear_miembro(
     miembro_data: MiembroCreate,
+    request: Request,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -239,6 +242,15 @@ async def crear_miembro(
     
     db.commit()
     db.refresh(nuevo_miembro)
+    
+    # Registrar actividad de auditoría
+    AuditService.registrar_miembro_creado(
+        db=db,
+        usuario_id=current_user.id,
+        miembro_id=nuevo_miembro.id,
+        miembro_nombre=f"{numero_miembro} - {nuevo_miembro.nombre_completo}",
+        request=request
+    )
     
     logger.info(f"[OK] Miembro creado: {numero_miembro} - {nuevo_miembro.nombre_completo}")
     
@@ -379,6 +391,7 @@ async def actualizar_miembro(
 @router.delete("/{miembro_id}", response_model=MessageResponse)
 async def eliminar_miembro(
     miembro_id: int,
+    request: Request,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -396,17 +409,36 @@ async def eliminar_miembro(
         )
     
     # Soft delete
+    numero_miembro_guardado = miembro.numero_miembro
+    nombre_completo_guardado = miembro.nombre_completo
+    
     miembro.soft_delete()
     miembro.estado = EstadoMiembro.BAJA
     miembro.fecha_baja = date.today()
     
     db.commit()
     
-    logger.info(f"[DELETE] Miembro eliminado: {miembro.numero_miembro}")
+    # Registrar actividad de auditoría
+    AuditService.registrar(
+        db=db,
+        tipo=TipoActividad.MIEMBRO_ELIMINADO,
+        descripcion=f"Miembro {numero_miembro_guardado} - {nombre_completo_guardado} dado de baja (soft delete)",
+        usuario_id=current_user.id,
+        entidad_tipo="miembro",
+        entidad_id=miembro_id,
+        datos_adicionales={
+            "numero_miembro": numero_miembro_guardado,
+            "nombre_completo": nombre_completo_guardado,
+            "fecha_baja": date.today().isoformat()
+        },
+        request=request
+    )
+    
+    logger.info(f"[DELETE] Miembro eliminado: {numero_miembro_guardado}")
     
     return MessageResponse(
         message="Miembro eliminado correctamente",
-        detail=f"Miembro {miembro.numero_miembro} dado de baja"
+        detail=f"Miembro {numero_miembro_guardado} dado de baja"
     )
 
 
@@ -414,6 +446,7 @@ async def eliminar_miembro(
 async def cambiar_estado_miembro(
     miembro_id: int,
     cambio: CambiarEstadoRequest,
+    request: Request,
     current_user: Usuario = Depends(require_operador),
     db: Session = Depends(get_db)
 ):
@@ -442,6 +475,24 @@ async def cambiar_estado_miembro(
     
     db.commit()
     db.refresh(miembro)
+    
+    # Registrar actividad de auditoría
+    AuditService.registrar(
+        db=db,
+        tipo=TipoActividad.MIEMBRO_EDITADO,
+        descripcion=f"Cambio de estado: {estado_anterior.value} → {cambio.nuevo_estado.value} - {miembro.numero_miembro}",
+        usuario_id=current_user.id,
+        entidad_tipo="miembro",
+        entidad_id=miembro.id,
+        datos_adicionales={
+            "numero_miembro": miembro.numero_miembro,
+            "nombre_completo": miembro.nombre_completo,
+            "estado_anterior": estado_anterior.value,
+            "estado_nuevo": cambio.nuevo_estado.value,
+            "motivo": cambio.motivo
+        },
+        request=request
+    )
     
     logger.info(
         f"[REFRESH] Estado cambiado - Miembro: {miembro.numero_miembro} - "

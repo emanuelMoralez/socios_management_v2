@@ -595,6 +595,51 @@ class APIClient:
         params = {"fecha": fecha} if fecha else {}
         return await self._request("GET", "reportes/accesos-detallados", params=params)
 
+    # ==================== AUDITORÍA ====================
+    
+    async def get_actividades(
+        self,
+        tipo: Optional[str] = None,
+        severidad: Optional[str] = None,
+        usuario_id: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Obtener actividades de auditoría con paginación
+        
+        Args:
+            tipo: Filtrar por tipo de actividad
+            severidad: Filtrar por severidad (info, warning, error, critical)
+            usuario_id: Filtrar por usuario
+            page: Número de página
+            page_size: Registros por página
+        
+        Returns:
+            Dict con items (lista de actividades) y pagination (metadata)
+        """
+        params = {"page": page, "page_size": page_size}
+        if tipo:
+            params["tipo"] = tipo
+        if severidad:
+            params["severidad"] = severidad
+        if usuario_id:
+            params["usuario_id"] = usuario_id
+        
+        return await self._request("GET", "auditoria", params=params)
+    
+    async def get_actividad(self, actividad_id: int) -> Dict[str, Any]:
+        """
+        Obtener detalle de una actividad de auditoría
+        
+        Args:
+            actividad_id: ID de la actividad
+        
+        Returns:
+            Dict con el detalle completo de la actividad
+        """
+        return await self._request("GET", f"auditoria/{actividad_id}")
+
     # ==================== EXPORTACIÓN DE REPORTES ====================
     
     async def exportar_socios_excel(
