@@ -282,99 +282,6 @@ async def listar_pagos(
     )
 
 
-@router.get("/{pago_id}", response_model=PagoResponse)
-async def obtener_pago(
-    pago_id: int,
-    current_user: Usuario = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Obtener detalles de un pago específico
-    """
-    pago = db.query(Pago).filter(Pago.id == pago_id).first()
-    
-    if not pago:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Pago no encontrado"
-        )
-    
-    return pago
-
-
-@router.post("/{pago_id}/anular", response_model=MessageResponse)
-async def anular_pago(
-    pago_id: int,
-    anular_data: AnularPagoRequest,
-    current_user: Usuario = Depends(require_operador),
-    db: Session = Depends(get_db)
-):
-    """
-    Anular un pago (solo si no está ya anulado)
-    
-    Revierte el saldo del miembro y marca el pago como cancelado.
-    """
-    pago = db.query(Pago).filter(Pago.id == pago_id).first()
-    
-    if not pago:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Pago no encontrado"
-        )
-    
-    if pago.estado == EstadoPago.CANCELADO:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El pago ya está anulado"
-        )
-    
-    # Obtener miembro
-    miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
-    
-    if not miembro:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Miembro no encontrado"
-        )
-    
-    # Revertir saldo
-    miembro.saldo_cuenta -= pago.monto_final
-    
-    # Si el saldo se vuelve negativo, marcar como moroso
-    if miembro.saldo_cuenta < 0:
-        miembro.estado = EstadoMiembro.MOROSO
-    
-    # Anular pago
-    pago.estado = EstadoPago.CANCELADO
-    pago.observaciones = f"{pago.observaciones or ''}\n[ANULADO] {anular_data.motivo}"
-    
-    # Registrar movimiento de egreso (devolución)
-    movimiento = MovimientoCaja(
-        tipo="egreso",
-        concepto=f"ANULACIÓN - {pago.concepto}",
-        descripcion=anular_data.motivo,
-        monto=pago.monto_final,
-        categoria_contable="Devoluciones",
-        fecha_movimiento=date.today(),
-        numero_comprobante=pago.numero_comprobante,
-        pago_id=pago.id,
-        registrado_por_id=current_user.id
-    )
-    db.add(movimiento)
-    
-    db.commit()
-    
-    logger.warning(
-        f"[WARN] Pago anulado: {pago.numero_comprobante} - "
-        f"Motivo: {anular_data.motivo}"
-    )
-    
-    return MessageResponse(
-        message="Pago anulado correctamente",
-        detail=f"Se revirtió ${pago.monto_final} del saldo del miembro"
-    )
-
-
 # ==================== MOVIMIENTOS DE CAJA ====================
 
 @router.post("/movimientos", response_model=MovimientoCajaResponse, status_code=status.HTTP_201_CREATED)
@@ -389,7 +296,7 @@ async def registrar_movimiento(
     Para gastos operativos, compras, etc.
     """
     nuevo_movimiento = MovimientoCaja(
-        **movimiento_data.dict(),
+        **movimiento_data.model_dump(),
         registrado_por_id=current_user.id
     )
     
@@ -526,4 +433,97 @@ async def obtener_resumen_financiero(
         ingresos_mes_actual=total_ingresos,
         ingresos_mes_anterior=ingresos_mes_anterior,
         periodo=f"{anio}-{mes:02d}"
+    )
+
+
+@router.get("/{pago_id}", response_model=PagoResponse)
+async def obtener_pago(
+    pago_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtener detalles de un pago específico
+    """
+    pago = db.query(Pago).filter(Pago.id == pago_id).first()
+    
+    if not pago:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pago no encontrado"
+        )
+    
+    return pago
+
+
+@router.post("/{pago_id}/anular", response_model=MessageResponse)
+async def anular_pago(
+    pago_id: int,
+    anular_data: AnularPagoRequest,
+    current_user: Usuario = Depends(require_operador),
+    db: Session = Depends(get_db)
+):
+    """
+    Anular un pago (solo si no está ya anulado)
+    
+    Revierte el saldo del miembro y marca el pago como cancelado.
+    """
+    pago = db.query(Pago).filter(Pago.id == pago_id).first()
+    
+    if not pago:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pago no encontrado"
+        )
+    
+    if pago.estado == EstadoPago.CANCELADO:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El pago ya está anulado"
+        )
+    
+    # Obtener miembro
+    miembro = db.query(Miembro).filter(Miembro.id == pago.miembro_id).first()
+    
+    if not miembro:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Miembro no encontrado"
+        )
+    
+    # Revertir saldo
+    miembro.saldo_cuenta -= pago.monto_final
+    
+    # Si el saldo se vuelve negativo, marcar como moroso
+    if miembro.saldo_cuenta < 0:
+        miembro.estado = EstadoMiembro.MOROSO
+    
+    # Anular pago
+    pago.estado = EstadoPago.CANCELADO
+    pago.observaciones = f"{pago.observaciones or ''}\n[ANULADO] {anular_data.motivo}"
+    
+    # Registrar movimiento de egreso (devolución)
+    movimiento = MovimientoCaja(
+        tipo="egreso",
+        concepto=f"ANULACIÓN - {pago.concepto}",
+        descripcion=anular_data.motivo,
+        monto=pago.monto_final,
+        categoria_contable="Devoluciones",
+        fecha_movimiento=date.today(),
+        numero_comprobante=pago.numero_comprobante,
+        pago_id=pago.id,
+        registrado_por_id=current_user.id
+    )
+    db.add(movimiento)
+    
+    db.commit()
+    
+    logger.warning(
+        f"[WARN] Pago anulado: {pago.numero_comprobante} - "
+        f"Motivo: {anular_data.motivo}"
+    )
+    
+    return MessageResponse(
+        message="Pago anulado correctamente",
+        detail=f"Se revirtió ${pago.monto_final} del saldo del miembro"
     )
