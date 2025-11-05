@@ -2,7 +2,7 @@
 Schemas para modelo Pago y MovimientoCaja
 backend/app/schemas/pago.py
 """
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from datetime import date
 from decimal import Decimal
@@ -40,7 +40,8 @@ class PagoBase(BaseModel):
 class PagoCreate(PagoBase):
     """Schema para crear pago"""
     
-    @validator('monto', 'descuento', 'recargo')
+    @field_validator('monto', 'descuento', 'recargo')
+    @classmethod
     def validar_montos(cls, v):
         if v < 0:
             raise ValueError('Los montos no pueden ser negativos')
@@ -72,8 +73,7 @@ class PagoResponse(PagoBase, TimestampMixin):
     # Datos del miembro (nested) - tipado correctamente para evitar errores de serialización
     miembro: Optional["MiembroListItem"] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PagoListItem(BaseModel):
@@ -88,8 +88,7 @@ class PagoListItem(BaseModel):
     miembro_id: int
     nombre_miembro: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== REGISTRAR PAGO RÁPIDO ====================
@@ -135,8 +134,7 @@ class MovimientoCajaResponse(MovimientoCajaBase, TimestampMixin):
     comprobante_url: Optional[str] = None
     registrado_por_id: Optional[int] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== RESUMEN FINANCIERO ====================

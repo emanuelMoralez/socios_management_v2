@@ -2,7 +2,7 @@
 Schemas comunes y respuestas genéricas
 backend/app/schemas/common.py
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Generic, TypeVar, Optional, List, Any
 from datetime import datetime
 
@@ -44,11 +44,10 @@ class PaginationMeta(BaseModel):
 
 class PaginatedResponse(BaseModel, Generic[T]):
     """Respuesta paginada genérica"""
+    model_config = ConfigDict(from_attributes=True)
+    
     items: List[T]
     pagination: PaginationMeta
-    
-    class Config:
-        from_attributes = True
 
 
 # ==================== FILTROS Y ORDENAMIENTO ====================
@@ -67,11 +66,10 @@ class DateRangeFilter(BaseModel):
 # ==================== TIMESTAMPS ====================
 class TimestampMixin(BaseModel):
     """Mixin para modelos con timestamps"""
+    model_config = ConfigDict(from_attributes=True)
+    
     created_at: datetime
     updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 
 # ==================== ID GENÉRICO ====================

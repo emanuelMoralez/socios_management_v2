@@ -2,7 +2,7 @@
 Schemas para modelo Usuario
 backend/app/schemas/usuario.py
 """
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -31,9 +31,10 @@ class UsuarioCreate(UsuarioBase):
     )
     confirm_password: str = Field(..., min_length=8)
     
-    @validator('confirm_password')
-    def passwords_match(cls, v, values):
-        if 'password' in values and v != values['password']:
+    @field_validator('confirm_password')
+    @classmethod
+    def passwords_match(cls, v, info):
+        if 'password' in info.data and v != info.data['password']:
             raise ValueError('Las contraseñas no coinciden')
         return v
 
@@ -52,18 +53,19 @@ class UsuarioUpdate(BaseModel):
 # ==================== RESPONSE ====================
 class UsuarioResponse(UsuarioBase, TimestampMixin):
     """Schema para respuesta de usuario (sin password)"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     is_active: bool
     is_verified: bool
     last_login: Optional[str] = None
     is_deleted: bool = False
-    
-    class Config:
-        from_attributes = True
 
 
 class UsuarioListItem(BaseModel):
     """Schema para lista de usuarios (simplificado)"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     username: str
     email: str
@@ -72,9 +74,6 @@ class UsuarioListItem(BaseModel):
     is_active: bool
     last_login: Optional[str] = None
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 # ==================== PROFILE ====================

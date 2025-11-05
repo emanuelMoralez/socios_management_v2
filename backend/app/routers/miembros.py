@@ -66,7 +66,7 @@ async def crear_categoria(
             detail=f"Ya existe una categoría con el nombre '{categoria_data.nombre}'"
         )
     
-    nueva_categoria = Categoria(**categoria_data.dict())
+    nueva_categoria = Categoria(**categoria_data.model_dump())
     
     db.add(nueva_categoria)
     db.commit()

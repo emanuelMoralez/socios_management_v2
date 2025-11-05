@@ -2,7 +2,7 @@
 Schemas para modelo Miembro (Socio/Asociado)
 backend/app/schemas/miembro.py
 """
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import date, datetime
 
@@ -23,7 +23,8 @@ class CategoriaBase(BaseModel):
 
 class CategoriaCreate(CategoriaBase):
     """Schema para crear categoría"""
-    @validator('descripcion', 'caracteristicas', pre=True)
+    @field_validator('descripcion', 'caracteristicas', mode='before')
+    @classmethod
     def empty_str_to_none(cls, v):
         """Convertir strings vacíos a None"""
         if v == "":
@@ -42,10 +43,9 @@ class CategoriaUpdate(BaseModel):
 
 class CategoriaResponse(CategoriaBase, TimestampMixin):
     """Schema para respuesta de categoría"""
-    id: int
+    model_config = ConfigDict(from_attributes=True)
     
-    class Config:
-        from_attributes = True
+    id: int
 
 
 # ==================== MIEMBRO BASE ====================
@@ -83,7 +83,8 @@ class MiembroCreate(MiembroBase):
     """Schema para crear miembro"""
     fecha_alta: Optional[date] = None
     
-    @validator('numero_documento')
+    @field_validator('numero_documento')
+    @classmethod
     def validar_documento(cls, v):
         # Remover espacios y guiones
         v = v.replace(' ', '').replace('-', '')
@@ -146,8 +147,7 @@ class MiembroResponse(MiembroBase, TimestampMixin):
     puede_acceder: bool
     dias_mora: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MiembroListItem(BaseModel):
@@ -163,8 +163,7 @@ class MiembroListItem(BaseModel):
     categoria: Optional[CategoriaResponse] = None
     fecha_alta: date
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== QR ====================

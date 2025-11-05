@@ -3,8 +3,7 @@ Configuración de SQLAlchemy y sesión de base de datos
 backend/app/database.py
 """
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from typing import Generator
 import logging
@@ -40,8 +39,10 @@ SessionLocal = sessionmaker(
     bind=engine
 )
 
-# Base declarativa
-Base = declarative_base()
+# Base declarativa (SQLAlchemy 2.0 style)
+class Base(DeclarativeBase):
+    """Base class for all ORM models"""
+    pass
 
 
 # ==================== DEPENDENCY ====================
