@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
 import sys
+from pathlib import Path
 
 from app.database import engine, Base, check_db_connection
 from app.config import settings
@@ -18,13 +19,19 @@ from app.config import settings
 from app.routers import auth, miembros, accesos, pagos, usuarios, reportes, notificaciones
 
 # Configurar logging
+handlers = [logging.StreamHandler(sys.stdout)]
+if settings.LOG_FILE:
+    # Crear directorio de logs si no existe
+    log_path = Path(settings.LOG_FILE)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handlers.append(logging.FileHandler(settings.LOG_FILE))
+else:
+    handlers.append(logging.NullHandler())
+
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(settings.LOG_FILE) if settings.LOG_FILE else logging.NullHandler()
-    ]
+    handlers=handlers
 )
 
 logger = logging.getLogger(__name__)
