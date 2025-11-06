@@ -131,15 +131,15 @@ class ErrorBanner(ft.Container):
         if self.page:
             self.page.update()
         
-        # Auto-hide (opcional)
+        # Auto-hide solo si está habilitado Y hay página
         if auto_hide and self.page:
-            import asyncio
-            async def hide_after_delay():
-                await asyncio.sleep(duration / 1000)
+            def hide_delayed():
+                import time
+                time.sleep(duration / 1000)
                 self.hide()
             
-            # Ejecutar en background
-            self.page.run_task(hide_after_delay)
+            import threading
+            threading.Thread(target=hide_delayed, daemon=True).start()
     
     def show_errors(self, errors: list, auto_hide: bool = False, duration: int = 5000):
         """

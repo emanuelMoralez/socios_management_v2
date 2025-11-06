@@ -203,69 +203,74 @@ class ReportesView(ft.Column):
                 fecha_hasta=fecha_hasta.isoformat()
             )
             
-            # Crear visualización
-            self.reporte_container.content = ft.Column(
-                [
-                    ft.Text("Reporte Financiero", size=20, weight=ft.FontWeight.BOLD),
-                    ft.Text(
-                        f"Período: {fecha_desde.strftime('%d/%m/%Y')} - {fecha_hasta.strftime('%d/%m/%Y')}",
-                        size=14,
-                        color=ft.Colors.GREY_600
-                    ),
-                    ft.Divider(),
-                    
-                    # Resumen financiero
-                    ft.Row(
-                        [
-                            self._create_stat_box(
-                                "Total Ingresos",
-                                f"${data.get('total_ingresos', 0):,.2f}",
-                                ft.Icons.TRENDING_UP,
-                                ft.Colors.GREEN
-                            ),
-                            self._create_stat_box(
-                                "Total Egresos",
-                                f"${data.get('total_egresos', 0):,.2f}",
-                                ft.Icons.TRENDING_DOWN,
-                                ft.Colors.RED
-                            ),
-                            self._create_stat_box(
-                                "Balance",
-                                f"${data.get('balance', 0):,.2f}",
-                                ft.Icons.ACCOUNT_BALANCE,
-                                ft.Colors.BLUE
-                            ),
-                        ],
-                        spacing=10,
-                        wrap=True
-                    ),
-                    
-                    ft.Divider(height=30),
-                    
-                    # Detalles
-                    ft.Text("Detalle de Ingresos", size=16, weight=ft.FontWeight.BOLD),
-                    ft.Divider(),
-                    self._create_ingresos_table(data.get("ingresos_detalle", [])),
-                    
-                    ft.Divider(height=30),
-                    
-                    # Botones
-                    ft.Row(
-                        [
-                            ft.ElevatedButton(
-                                "Exportar a Excel",
-                                icon=ft.Icons.FILE_DOWNLOAD,
-                                on_click=lambda _: self.page.run_task(
-                                    self.exportar_pagos_excel,
-                                    fecha_desde.isoformat(),
-                                    fecha_hasta.isoformat()
+            # Crear visualización con mejor manejo de scroll y altura
+            self.reporte_container.content = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Reporte Financiero", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text(
+                            f"Período: {fecha_desde.strftime('%d/%m/%Y')} - {fecha_hasta.strftime('%d/%m/%Y')}",
+                            size=14,
+                            color=ft.Colors.GREY_600
+                        ),
+                        ft.Divider(),
+                        
+                        # Resumen financiero
+                        ft.Row(
+                            [
+                                self._create_stat_box(
+                                    "Total Ingresos",
+                                    f"${data.get('total_ingresos', 0):,.2f}",
+                                    ft.Icons.TRENDING_UP,
+                                    ft.Colors.GREEN
                                 ),
-                                style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700)
-                            ),
-                        ]
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
+                                self._create_stat_box(
+                                    "Total Egresos",
+                                    f"${data.get('total_egresos', 0):,.2f}",
+                                    ft.Icons.TRENDING_DOWN,
+                                    ft.Colors.RED
+                                ),
+                                self._create_stat_box(
+                                    "Balance",
+                                    f"${data.get('balance', 0):,.2f}",
+                                    ft.Icons.ACCOUNT_BALANCE,
+                                    ft.Colors.BLUE
+                                ),
+                            ],
+                            spacing=10,
+                            wrap=True
+                        ),
+                        
+                        ft.Divider(height=30),
+                        
+                        # Detalles
+                        ft.Text("Detalle de Ingresos", size=16, weight=ft.FontWeight.BOLD),
+                        ft.Divider(),
+                        self._create_ingresos_table(data.get("ingresos_detalle", [])),
+                        
+                        ft.Divider(height=30),
+                        
+                        # Botones
+                        ft.Row(
+                            [
+                                ft.ElevatedButton(
+                                    "Exportar a Excel",
+                                    icon=ft.Icons.FILE_DOWNLOAD,
+                                    on_click=lambda _: self.page.run_task(
+                                        self.exportar_pagos_excel,
+                                        fecha_desde.isoformat(),
+                                        fecha_hasta.isoformat()
+                                    ),
+                                    style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700)
+                                ),
+                            ]
+                        )
+                    ],
+                    spacing=10,
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                padding=10,
+                expand=True,
                 expand=True
             )
             
@@ -1086,7 +1091,15 @@ class ReportesView(ft.Column):
     def _create_accesos_chart(self, accesos_por_hora: list):
         """Crear gráfico de accesos por hora"""
         if not accesos_por_hora:
-            return ft.Text("No hay datos", color=ft.Colors.GREY_600)
+            return ft.Container(
+                content=ft.Text(
+                    "No hay datos de accesos para mostrar",
+                    color=ft.Colors.GREY_600,
+                    text_align=ft.TextAlign.CENTER
+                ),
+                padding=20,
+                alignment=ft.alignment.center
+            )
         
         # Encontrar el máximo para escalar
         max_accesos = max([h.get("cantidad", 0) for h in accesos_por_hora], default=1)

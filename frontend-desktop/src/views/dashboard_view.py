@@ -168,6 +168,11 @@ class DashboardView(ft.Column):
         self.expand = True
         self.scroll = ft.ScrollMode.AUTO
     
+    def did_mount(self):
+        """Llamado cuando el control se monta en la página"""
+        if self.page:
+            self.page.run_task(self._load_dashboard_data)
+    
     def load_dashboard_data(self):
         """Cargar datos del dashboard"""
         self.page.run_task(self._load_dashboard_data)

@@ -37,6 +37,10 @@ class AccesosQRView(ft.Column):
             visible=False  # Oculto hasta que se active la cámara
         )
         
+        # Referencias para guía QR
+        self.qr_guide = None
+        self.qr_instruction = None
+        
         # Placeholder cuando la cámara está inactiva
         self.camera_placeholder = ft.Column(
             [
@@ -95,31 +99,9 @@ class AccesosQRView(ft.Column):
                     alignment=ft.alignment.center
                 ),
                 # Guía de centrado para QR (solo visible cuando cámara activa)
-                ft.Container(
-                    content=ft.Container(
-                        width=250,
-                        height=250,
-                        border=ft.border.all(4, ft.Colors.GREEN_400),
-                        border_radius=20,
-                    ),
-                    alignment=ft.alignment.center,
-                    visible=False,
-                    data={"qr_guide": True}
-                ),
+                self._create_qr_guide(),
                 # Texto instructivo (solo visible cuando cámara activa)
-                ft.Container(
-                    content=ft.Text(
-                        "Centra el código QR en el recuadro",
-                        size=14,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE,
-                        bgcolor=ft.Colors.with_opacity(0.7, ft.Colors.BLACK),
-                    ),
-                    alignment=ft.alignment.top_center,
-                    padding=15,
-                    visible=False,
-                    data={"qr_instruction": True}
-                ),
+                self._create_qr_instruction(),
                 # Estado de escaneo
                 ft.Container(
                     content=ft.Column(
@@ -209,6 +191,36 @@ class AccesosQRView(ft.Column):
         
         card.data = {"value_text": value_text}
         return card
+    
+    def _create_qr_guide(self):
+        """Crear guía QR con referencia guardada"""
+        self.qr_guide = ft.Container(
+            content=ft.Container(
+                width=250,
+                height=250,
+                border=ft.border.all(4, ft.Colors.GREEN_400),
+                border_radius=20,
+            ),
+            alignment=ft.alignment.center,
+            visible=False
+        )
+        return self.qr_guide
+    
+    def _create_qr_instruction(self):
+        """Crear instrucción QR con referencia guardada"""
+        self.qr_instruction = ft.Container(
+            content=ft.Text(
+                "Centra el código QR en el recuadro",
+                size=14,
+                weight=ft.FontWeight.BOLD,
+                color=ft.Colors.WHITE,
+                bgcolor=ft.Colors.with_opacity(0.7, ft.Colors.BLACK),
+            ),
+            alignment=ft.alignment.top_center,
+            padding=15,
+            visible=False
+        )
+        return self.qr_instruction
     
     def build_ui(self):
         """Construir interfaz"""
@@ -477,10 +489,10 @@ class AccesosQRView(ft.Column):
         self.camera_image.visible = True
         
         # Mostrar guías de QR
-        for control in self.camera_preview.controls:
-            if hasattr(control, 'data'):
-                if control.data and (control.data.get("qr_guide") or control.data.get("qr_instruction")):
-                    control.visible = True
+        self.qr_guide.visible = True
+        self.qr_instruction.visible = True
+        self.qr_guide.update()
+        self.qr_instruction.update()
         
         self.camera_preview.update()
         
@@ -500,10 +512,10 @@ class AccesosQRView(ft.Column):
         self.camera_image.visible = False
         
         # Ocultar guías de QR
-        for control in self.camera_preview.controls:
-            if hasattr(control, 'data'):
-                if control.data and (control.data.get("qr_guide") or control.data.get("qr_instruction")):
-                    control.visible = False
+        self.qr_guide.visible = False
+        self.qr_instruction.visible = False
+        self.qr_guide.update()
+        self.qr_instruction.update()
         
         self.camera_preview.update()
         

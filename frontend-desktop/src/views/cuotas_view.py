@@ -100,16 +100,18 @@ class CuotasView(ft.Column):
         # Tabla de pagos
         self.data_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Comprobante")),
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Socio")),
-                ft.DataColumn(ft.Text("Concepto")),
-                ft.DataColumn(ft.Text("Monto")),
-                ft.DataColumn(ft.Text("Método")),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Acciones")),
+                ft.DataColumn(ft.Text("Comprobante"), numeric=False),
+                ft.DataColumn(ft.Text("Fecha"), numeric=False),
+                ft.DataColumn(ft.Text("Socio"), numeric=False),
+                ft.DataColumn(ft.Text("Concepto"), numeric=False),
+                ft.DataColumn(ft.Text("Monto"), numeric=True),
+                ft.DataColumn(ft.Text("Método"), numeric=False),
+                ft.DataColumn(ft.Text("Estado"), numeric=False),
+                ft.DataColumn(ft.Text("Acciones"), numeric=False),
             ],
             rows=[],
+            column_spacing=10,
+            horizontal_margin=12,
         )
         
         self.loading = ft.ProgressRing(visible=False)
@@ -243,7 +245,8 @@ class CuotasView(ft.Column):
                             content=self.data_table,
                             border=ft.border.all(1, ft.Colors.GREY_300),
                             border_radius=5,
-                            padding=10
+                            padding=10,
+                            expand=True
                         )
                     ],
                     scroll=ft.ScrollMode.AUTO,
@@ -355,19 +358,26 @@ class CuotasView(ft.Column):
             self.data_table.rows.append(
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(pago.get("numero_comprobante", "-"))),
-                        ft.DataCell(ft.Text(pago.get("fecha_pago", ""))),
-                        ft.DataCell(ft.Text(pago.get("nombre_miembro", ""))),
-                        ft.DataCell(ft.Text(pago.get("concepto", ""))),
+                        ft.DataCell(ft.Text(pago.get("numero_comprobante", "-"), size=13)),
+                        ft.DataCell(ft.Text(pago.get("fecha_pago", ""), size=13)),
+                        ft.DataCell(ft.Text(pago.get("nombre_miembro", ""), size=13)),
+                        ft.DataCell(ft.Text(pago.get("concepto", ""), size=13)),
                         ft.DataCell(
                             ft.Text(
                                 monto_text,
                                 weight=ft.FontWeight.BOLD,
-                                color=ft.Colors.GREEN_700
+                                color=ft.Colors.GREEN_700,
+                                size=13
                             )
                         ),
                         ft.DataCell(
-                            ft.Text(pago.get("metodo_pago", "").capitalize())
+                            ft.Container(
+                                content=ft.Text(
+                                    pago.get("metodo_pago", "").capitalize(),
+                                    size=12
+                                ),
+                                width=90
+                            )
                         ),
                         ft.DataCell(
                             ft.Container(
@@ -388,17 +398,20 @@ class CuotasView(ft.Column):
                                     ft.IconButton(
                                         icon=ft.Icons.VISIBILITY,
                                         tooltip="Ver detalles",
+                                        icon_size=20,
                                         on_click=lambda e, p=pago: self.page.run_task(self.show_pago_details, p)
                                     ),
                                     ft.IconButton(
                                         icon=ft.Icons.CANCEL,
                                         tooltip="Anular",
                                         icon_color=ft.Colors.RED,
+                                        icon_size=20,
                                         on_click=lambda e, p=pago: self.page.run_task(self.show_anular_dialog, p),
                                         disabled=estado == "cancelado"
                                     ),
                                 ],
-                                spacing=0
+                                spacing=5,
+                                tight=True
                             )
                         ),
                     ]
