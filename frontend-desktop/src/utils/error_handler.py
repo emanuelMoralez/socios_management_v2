@@ -93,6 +93,13 @@ def handle_api_error(page: ft.Page, error: Exception, context: str = "") -> bool
             elif isinstance(details, str):
                 message += f"\n{details}"
         
+        # Adjuntar request_id si existe
+        req_id = getattr(error, "request_id", None)
+        if not req_id and hasattr(error, "details") and isinstance(error.details, dict):
+            req_id = error.details.get("request_id")
+        if req_id:
+            message += f"\nID: {req_id}"
+
         _show_snackbar(page, message, ft.Colors.ORANGE_700, 5000)
         return True
     
@@ -102,6 +109,11 @@ def handle_api_error(page: ft.Page, error: Exception, context: str = "") -> bool
         if context:
             message += f"\n{context.capitalize()} requiere autenticación"
         
+        # Adjuntar request_id si existe
+        req_id = getattr(error, "request_id", None)
+        if req_id:
+            message += f"\nID: {req_id}"
+
         _show_snackbar(page, message, ft.Colors.RED_700, 4000)
         
         # Opcional: redirigir a login después de 2 segundos
@@ -117,6 +129,11 @@ def handle_api_error(page: ft.Page, error: Exception, context: str = "") -> bool
             if isinstance(error.details, dict) and "detail" in error.details:
                 message += f"\n{error.details['detail']}"
         
+        # Adjuntar request_id si existe
+        req_id = getattr(error, "request_id", None)
+        if req_id:
+            message += f"\nID: {req_id}"
+
         _show_snackbar(page, message, ft.Colors.BLUE_GREY_700, 4000)
         return True
     
@@ -127,6 +144,11 @@ def handle_api_error(page: ft.Page, error: Exception, context: str = "") -> bool
             message += f"\n{context.capitalize()} excedió el tiempo límite"
         message += "\nIntenta nuevamente o contacta al administrador"
         
+        # Adjuntar request_id si existe
+        req_id = getattr(error, "request_id", None)
+        if req_id:
+            message += f"\nID: {req_id}"
+
         _show_snackbar(page, message, ft.Colors.DEEP_ORANGE_700, 5000)
         return True
     
@@ -149,6 +171,13 @@ def handle_api_error(page: ft.Page, error: Exception, context: str = "") -> bool
                 elif isinstance(error.details, str):
                     message += f"\n{error.details}"
         
+        # Adjuntar request_id si existe
+        req_id = getattr(error, "request_id", None)
+        if not req_id and hasattr(error, "details") and isinstance(error.details, dict):
+            req_id = error.details.get("request_id")
+        if req_id:
+            message += f"\nID: {req_id}"
+
         _show_snackbar(page, message, ft.Colors.RED_900, 5000)
         return True
     
@@ -158,7 +187,7 @@ def handle_api_error(page: ft.Page, error: Exception, context: str = "") -> bool
         if context:
             message += f" al {context}"
         message += f"\n{str(error)[:100]}"  # Limitar longitud
-        
+
         _show_snackbar(page, message, ft.Colors.GREY_800, 5000)
         return True
 

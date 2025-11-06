@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 import logging
 
 from app.models.actividad import Actividad, TipoActividad, NivelSeveridad
+from app import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,12 @@ class AuditService:
                         "entidad": f"{entidad_tipo}:{entidad_id}" if entidad_tipo else None
                     }
                 )
+            
+            # Métricas (no-op si prometheus no está disponible)
+            try:
+                metrics.inc_audit(tipo.value, severidad.value)
+            except Exception:
+                pass
             
             return actividad
             

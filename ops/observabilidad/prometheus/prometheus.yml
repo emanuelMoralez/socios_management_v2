@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "socios-backend"
+    static_configs:
+      # Nota: en Windows con Docker Desktop, 'host.docker.internal' apunta al host.
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          app: "socios-backend"

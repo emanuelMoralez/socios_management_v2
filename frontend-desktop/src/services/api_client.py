@@ -4,6 +4,7 @@ frontend-desktop/src/services/api_client.py
 """
 import httpx
 from typing import Optional, Dict, Any, Union
+import uuid
 import os
 from dotenv import load_dotenv
 
@@ -17,35 +18,36 @@ API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))
 
 class APIException(Exception):
     """Excepción base para errores de API"""
-    def __init__(self, message: str, status_code: int = None, details: Any = None):
+    def __init__(self, message: str, status_code: int = None, details: Any = None, request_id: Optional[str] = None):
         self.message = message
         self.status_code = status_code
         self.details = details
+        self.request_id = request_id
         super().__init__(message)
 
 
 class AuthenticationError(APIException):
     """Error de autenticación (401)"""
-    def __init__(self, message: str = "No autenticado", status_code: int = 401, details: Any = None):
-        super().__init__(message, status_code, details)
+    def __init__(self, message: str = "No autenticado", status_code: int = 401, details: Any = None, request_id: Optional[str] = None):
+        super().__init__(message, status_code, details, request_id)
 
 
 class APITimeoutError(APIException):
     """Error de timeout"""
-    def __init__(self, message: str = "Timeout", status_code: int = None, details: Any = None):
-        super().__init__(message, status_code, details)
+    def __init__(self, message: str = "Timeout", status_code: int = None, details: Any = None, request_id: Optional[str] = None):
+        super().__init__(message, status_code, details, request_id)
 
 
 class ValidationError(APIException):
     """Error de validación (422)"""
-    def __init__(self, message: str = "Datos inválidos", status_code: int = 422, details: Any = None):
-        super().__init__(message, status_code, details)
+    def __init__(self, message: str = "Datos inválidos", status_code: int = 422, details: Any = None, request_id: Optional[str] = None):
+        super().__init__(message, status_code, details, request_id)
 
 
 class NotFoundError(APIException):
     """Recurso no encontrado (404)"""
-    def __init__(self, message: str = "No encontrado", status_code: int = 404, details: Any = None):
-        super().__init__(message, status_code, details)
+    def __init__(self, message: str = "No encontrado", status_code: int = 404, details: Any = None, request_id: Optional[str] = None):
+        super().__init__(message, status_code, details, request_id)
 
 
 class APIClient:
@@ -99,15 +101,30 @@ class APIClient:
         
         url = f"{self.base_url}/{endpoint}"
         
-        # Agregar headers con token
+        # Agregar headers con token y correlación
         if 'headers' not in kwargs:
             kwargs['headers'] = {}
         kwargs['headers'].update(self._get_headers())
+        # Generar X-Request-ID si no viene uno
+        req_id = kwargs['headers'].get('X-Request-ID') or uuid.uuid4().hex
+        kwargs['headers']['X-Request-ID'] = req_id
         
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.request(method, url, **kwargs)
                 
+                # Extraer request_id de la respuesta, si existe
+                resp_request_id = response.headers.get("X-Request-ID")
+                try:
+                    # En algunos errores viene en el cuerpo también
+                    _maybe_json = None
+                    if response.headers.get("content-type", "").startswith("application/json"):
+                        _maybe_json = response.json()
+                        if not resp_request_id and isinstance(_maybe_json, dict):
+                            resp_request_id = _maybe_json.get("request_id")
+                except Exception:
+                    _maybe_json = None
+
                 # Manejo de errores de autenticación con auto-refresh
                 if response.status_code == 401 and retry_auth and self.refresh_token:
                     try:
@@ -122,24 +139,31 @@ class APIClient:
                         # Si falla el refresh, limpiar tokens y lanzar error
                         self.token = None
                         self.refresh_token = None
-                        raise AuthenticationError("Sesión expirada. Por favor inicia sesión nuevamente.")
+                        raise AuthenticationError("Sesión expirada. Por favor inicia sesión nuevamente.", request_id=resp_request_id or req_id)
                 
                 # Si es 401 sin refresh token o retry ya intentado
                 if response.status_code == 401:
                     self.token = None
                     self.refresh_token = None
-                    raise AuthenticationError("Sesión expirada. Por favor inicia sesión nuevamente.")
+                    raise AuthenticationError("Sesión expirada. Por favor inicia sesión nuevamente.", request_id=resp_request_id or req_id)
                 
                 # Manejo de otros códigos de error
                 if response.status_code == 404:
-                    raise NotFoundError(f"Recurso no encontrado: {endpoint}")
+                    # Intentar extraer detalle
+                    details = None
+                    try:
+                        details = response.json()
+                    except Exception:
+                        details = None
+                    raise NotFoundError(f"Recurso no encontrado: {endpoint}", details=details, request_id=resp_request_id or req_id)
                 
                 if response.status_code == 422:
-                    error_detail = response.json()
+                    error_detail = _maybe_json if _maybe_json is not None else response.json()
                     raise ValidationError(
                         message="Datos inválidos",
                         status_code=422,
-                        details=error_detail
+                        details=error_detail,
+                        request_id=(resp_request_id or (error_detail.get("request_id") if isinstance(error_detail, dict) else None) or req_id)
                     )
                 
                 # Para otros errores, usar raise_for_status de httpx
@@ -152,16 +176,21 @@ class APIClient:
                     return response.json()
         
         except httpx.TimeoutException as e:
-            raise APITimeoutError(f"La petición excedió el tiempo límite de {timeout}s")
+            raise APITimeoutError(f"La petición excedió el tiempo límite de {timeout}s", request_id=req_id)
         except (AuthenticationError, ValidationError, NotFoundError, APITimeoutError):
             # Re-lanzar excepciones personalizadas
             raise
         except httpx.HTTPStatusError as e:
             # Otros errores HTTP
-            raise APIException(f"Error HTTP {e.response.status_code}: {e.response.text}")
+            rid = None
+            try:
+                rid = e.response.headers.get("X-Request-ID")
+            except Exception:
+                pass
+            raise APIException(f"Error HTTP {e.response.status_code}: {e.response.text}", status_code=e.response.status_code, details=None, request_id=rid or req_id)
         except Exception as e:
             # Errores de red u otros
-            raise APIException(f"Error de comunicación con la API: {str(e)}")
+            raise APIException(f"Error de comunicación con la API: {str(e)}", request_id=req_id)
     
     # ==================== AUTENTICACIÓN ====================
     

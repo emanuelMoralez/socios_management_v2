@@ -5,6 +5,7 @@ backend/app/routers/miembros.py
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
+from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime
 from typing import List, Optional
 import logging
@@ -191,40 +192,55 @@ async def crear_miembro(
             detail=f"Ya existe un miembro con el documento {miembro_data.numero_documento}"
         )
     
-    # Generar número de miembro único
-    ultimo = db.query(Miembro).order_by(Miembro.id.desc()).first()
-    siguiente_numero = (ultimo.id + 1) if ultimo else 1
-    numero_miembro = f"{settings.NUMERO_MIEMBRO_PREFIX}-{siguiente_numero:0{settings.NUMERO_MIEMBRO_LENGTH}d}"
-    
-    # Crear miembro (sin QR todavía)
-    nuevo_miembro = Miembro(
-        numero_miembro=numero_miembro,
-        tipo_documento=miembro_data.tipo_documento,
-        numero_documento=miembro_data.numero_documento,
-        nombre=miembro_data.nombre,
-        apellido=miembro_data.apellido,
-        fecha_nacimiento=miembro_data.fecha_nacimiento,
-        email=miembro_data.email,
-        telefono=miembro_data.telefono,
-        celular=miembro_data.celular,
-        direccion=miembro_data.direccion,
-        localidad=miembro_data.localidad,
-        provincia=miembro_data.provincia,
-        codigo_postal=miembro_data.codigo_postal,
-        categoria_id=miembro_data.categoria_id,
-        observaciones=miembro_data.observaciones,
-        modulo_tipo=miembro_data.modulo_tipo,
-        fecha_alta=miembro_data.fecha_alta or date.today(),
-        estado=EstadoMiembro.ACTIVO,
-        # QR temporal (se actualizará después)
-        qr_code="TEMP",
-        qr_hash="TEMP",
-        qr_generated_at=datetime.utcnow().isoformat()
-    )
-    
-    db.add(nuevo_miembro)
-    db.commit()
-    db.refresh(nuevo_miembro)
+    # Generar número de miembro único con retry ante colisiones
+    MAX_RETRIES = 3
+    nuevo_miembro = None
+    numero_miembro = None
+
+    for intento in range(1, MAX_RETRIES + 1):
+        try:
+            # Usar MAX(id) como base y sumar el intento para minimizar colisiones
+            max_id = db.query(func.max(Miembro.id)).scalar() or 0
+            siguiente_numero = max_id + intento
+            numero_miembro = f"{settings.NUMERO_MIEMBRO_PREFIX}-{siguiente_numero:0{settings.NUMERO_MIEMBRO_LENGTH}d}"
+
+            # Crear miembro (sin QR todavía)
+            nuevo_miembro = Miembro(
+                numero_miembro=numero_miembro,
+                tipo_documento=miembro_data.tipo_documento,
+                numero_documento=miembro_data.numero_documento,
+                nombre=miembro_data.nombre,
+                apellido=miembro_data.apellido,
+                fecha_nacimiento=miembro_data.fecha_nacimiento,
+                email=miembro_data.email,
+                telefono=miembro_data.telefono,
+                celular=miembro_data.celular,
+                direccion=miembro_data.direccion,
+                localidad=miembro_data.localidad,
+                provincia=miembro_data.provincia,
+                codigo_postal=miembro_data.codigo_postal,
+                categoria_id=miembro_data.categoria_id,
+                observaciones=miembro_data.observaciones,
+                modulo_tipo=miembro_data.modulo_tipo,
+                fecha_alta=miembro_data.fecha_alta or date.today(),
+                estado=EstadoMiembro.ACTIVO,
+                # QR temporal (se actualizará después)
+                qr_code="TEMP",
+                qr_hash="TEMP",
+                qr_generated_at=datetime.utcnow().isoformat()
+            )
+
+            db.add(nuevo_miembro)
+            db.commit()
+            db.refresh(nuevo_miembro)
+            break
+        except IntegrityError:
+            db.rollback()
+            if intento == MAX_RETRIES:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Conflicto al generar número de miembro. Intente nuevamente."
+                )
     
     # Generar QR con el ID real
     qr_data = QRService.generar_qr_miembro(

@@ -4,16 +4,19 @@ backend/app/main.py
 """
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
 import sys
 from pathlib import Path
+import json
+import uuid
 
 from app.database import engine, Base, check_db_connection
 from app.config import settings
+from app import metrics
 
 # Importar todos los routers
 from app.routers import auth, miembros, accesos, pagos, usuarios, reportes, notificaciones, auditoria
@@ -47,6 +50,12 @@ async def lifespan(app: FastAPI):
     logger.info("Iniciando Sistema de Gestión de Socios...")
     logger.info(f"Entorno: {settings.ENVIRONMENT}")
     logger.info(f"Versión: {settings.APP_VERSION}")
+    # Inicializar métricas (no-op si falta prometheus_client)
+    try:
+        metrics.init_metrics()
+        logger.info("Métricas inicializadas")
+    except Exception as e:
+        logger.warning(f"No se pudieron inicializar métricas: {e}")
 
     # Validación de configuración crítica en PRODUCCIÓN (fail-fast)
     if settings.ENVIRONMENT == "production":
@@ -147,22 +156,51 @@ app.add_middleware(
 # Logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Log de todas las peticiones"""
-    start_time = datetime.utcnow()
-    
+    """Middleware: asigna X-Request-ID, mide duración, registra métricas y log estructurado."""
+    # Correlación: request id
+    req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    request.state.request_id = req_id
+
+    # Medición de tiempo de alta resolución
+    t0 = metrics.now()
+
     # Procesar petición
     response = await call_next(request)
-    
+
     # Calcular tiempo
-    process_time = (datetime.utcnow() - start_time).total_seconds()
-    
-    # Log
-    logger.info(
-        f"{request.method} {request.url.path} - "
-        f"Status: {response.status_code} - "
-        f"Time: {process_time:.3f}s"
-    )
-    
+    duration = max(metrics.now() - t0, 0.0)
+
+    # Propagar header
+    try:
+        response.headers["X-Request-ID"] = req_id
+    except Exception:
+        pass
+
+    # Path "templated" si está disponible (evita cardinalidad alta)
+    path_template = getattr(getattr(request.scope, "get", lambda *_: None)("route"), "path", None)
+    if not path_template:
+        route = request.scope.get("route") if isinstance(request.scope, dict) else None
+        path_template = getattr(route, "path", request.url.path)
+
+    # Métricas
+    try:
+        metrics.track_http(request.method, path_template, response.status_code, duration)
+    except Exception:
+        pass
+
+    # Log estructurado (JSON)
+    log_payload = {
+        "msg": "request",
+        "request_id": req_id,
+        "method": request.method,
+        "path": request.url.path,
+        "route": path_template,
+        "status": response.status_code,
+        "duration_ms": round(duration * 1000, 3),
+        "client": getattr(request.client, "host", None),
+    }
+    logger.info(json.dumps(log_payload, ensure_ascii=False))
+
     return response
 
 
@@ -189,7 +227,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "success": False,
             "error": "Error de validación",
             "detail": "Los datos enviados no son válidos",
-            "errors": errors
+            "errors": errors,
+            "request_id": getattr(getattr(request, "state", object()), "request_id", None)
         }
     )
 
@@ -209,7 +248,8 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={
             "success": False,
             "error": "Error interno del servidor",
-            "detail": detail
+            "detail": detail,
+            "request_id": getattr(getattr(request, "state", object()), "request_id", None)
         }
     )
 
@@ -244,6 +284,13 @@ async def health_check():
         "database": "connected" if db_status else "disconnected",
         "environment": settings.ENVIRONMENT
     }
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint():
+    """Endpoint de métricas en formato Prometheus (o mensaje si deshabilitado)."""
+    payload, content_type = metrics.get_metrics_text()
+    return Response(content=payload, media_type=content_type)
 
 
 # Incluir routers de módulos
