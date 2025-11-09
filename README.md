@@ -65,8 +65,7 @@ cp .env.example .env
 PYTHONPATH=. python src/main.py
 # O en Windows CMD/PowerShell
 set PYTHONPATH=.
-python src/main.py
-```
+python```
 
 ### 7. App Móvil
 ```bash

@@ -52,7 +52,6 @@ class SociosView(ft.Column):
                 ft.DataColumn(ft.Text("Acciones")),
             ],
             rows=[],
-            expand=True
         )
         
         self.loading = ft.ProgressRing(visible=False)
