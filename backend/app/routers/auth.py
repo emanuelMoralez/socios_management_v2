@@ -80,7 +80,8 @@ async def login(
         "email": usuario.email,
         "nombre_completo": usuario.nombre_completo,
         "rol": usuario.rol.value,
-        "is_active": usuario.is_active
+        "is_active": usuario.is_active,
+        "org_name": settings.ORG_NAME
     }
     
     tokens["expires_in"] = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60

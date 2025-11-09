@@ -27,6 +27,7 @@ class CategoriasView(ft.Column):
                 ft.DataColumn(ft.Text("Acciones")),
             ],
             rows=[],
+            expand=True
         )
         
         self.loading = ft.ProgressRing(visible=False)
@@ -323,11 +324,6 @@ class CategoriasView(ft.Column):
             content=ft.Container(
                 content=ft.Column(
                     [
-                        # Banners para mensajes en el diálogo
-                        error_banner,
-                        success_banner,
-                        
-                        # Formulario
                         nombre_field,
                         descripcion_field,
                         ft.Divider(),
@@ -374,11 +370,6 @@ class CategoriasView(ft.Column):
     def show_edit_categoria_dialog(self, categoria: dict):
         """Mostrar diálogo para editar categoría"""
         
-        # Banners de error/éxito para el diálogo
-        error_banner = ErrorBanner()
-        success_banner = SuccessBanner()
-        
-        
         nombre_field = ft.TextField(
             label="Nombre *",
             value=categoria.get("nombre", "")
@@ -413,55 +404,48 @@ class CategoriasView(ft.Column):
         )
         
         async def guardar_cambios(e):
-            """Guarda los cambios realizados en la categoría"""
+            if not nombre_field.value or not cuota_base_field.value:
+                self.show_snackbar("Completa los campos obligatorios (*)", error=True)
+                return
+            
             try:
-                error_banner.hide()
-                success_banner.hide()
-                
-                # Validaciones individuales con mensajes específicos
-                if not nombre_field.value or not nombre_field.value.strip():
-                    error_banner.show_error('El nombre de la categoría es obligatorio')
-                    return
-                
-                if not cuota_base_field.value or not cuota_base_field.value.strip():
-                    error_banner.show_error('La cuota base es obligatoria')
-                    return
-                
-                try:
-                    cuota_valor = float(cuota_base_field.value.strip())
-                    if cuota_valor < 0:
-                        error_banner.show_error('La cuota base no puede ser negativa')
-                        return
-                except ValueError:
-                    error_banner.show_error('La cuota base debe ser un número válido')
-                    return
-                
-                # Preparar los datos
-                datos_actualizados = {
-                    'nombre': nombre_field.value.strip(),
-                    'descripcion': descripcion_field.value.strip() if descripcion_field.value else None,
-                    'cuota_base': cuota_valor,
-                    'tiene_cuota_fija': tiene_cuota_fija.value,
-                    'caracteristicas': [c.strip() for c in caracteristicas_field.value.split(',') if c.strip()] if caracteristicas_field.value else []
+                cuota = float(cuota_base_field.value)
+                if cuota < 0:
+                    raise ValueError("La cuota no puede ser negativa")
+            except ValueError:
+                self.show_snackbar("Ingresa un monto válido", error=True)
+                return
+            
+            try:
+                data = {
+                    "nombre": nombre_field.value,
+                    "descripcion": descripcion_field.value or None,
+                    "cuota_base": cuota,
+                    "tiene_cuota_fija": tiene_cuota_fija.value,
+                    "caracteristicas": caracteristicas_field.value or None
                 }
                 
-                # Actualizar en la API
-                response = await self.api_client.put(
-                    f'/categorias/{categoria["id"]}',
-                    datos_actualizados
-                )
+                # Llamar al API
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.put(
+                        f"{api_client.base_url}/miembros/categorias/{categoria['id']}",
+                        headers=api_client._get_headers(),
+                        json=data
+                    )
+                    response.raise_for_status()
                 
-                if response.get('ok'):
-                    show_success(self.page, 'Categoría actualizada exitosamente')
-                    dialog.open = False
-                    await self.page.update_async()
-                    await self.cargar_categorias()
-                else:
-                    error_banner.show_error(response.get('error', 'Error al actualizar la categoría'))
-                    
+                dialogo.open = False
+                self.page.update()
+                
+                self.show_snackbar("✓ Categoría actualizada")
+                await self.load_categorias()
+                
             except Exception as ex:
-                handle_api_error_with_banner(ex, error_banner, 'actualizar la categoría')
-
+                import traceback
+                traceback.print_exc()
+                self.show_snackbar(f"Error: {ex}", error=True)
+        
         def cerrar_dialogo(e):
             dialogo.open = False
             self.page.update()
@@ -478,8 +462,6 @@ class CategoriasView(ft.Column):
                             color=ft.Colors.GREY_600
                         ),
                         ft.Divider(),
-                        error_banner,
-                        success_banner,
                         nombre_field,
                         descripcion_field,
                         ft.Divider(),

@@ -43,29 +43,7 @@ class MainLayout(ft.Row):
     
     def _create_sidebar(self):
         """Crear barra lateral de navegación"""
-        # Usuario info
-        user_info = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Icon(ft.Icons.ACCOUNT_CIRCLE, size=50, color=ft.Colors.WHITE),
-                    ft.Text(
-                        self.user.get("username", "Usuario"),
-                        size=16,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE
-                    ),
-                    ft.Text(
-                        self.user.get("rol", ""),
-                        size=12,
-                        color=ft.Colors.WHITE70
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=5
-            ),
-            padding=20,
-            bgcolor=ft.Colors.BLUE_900
-        )
+        # Header eliminado
         
         # Menú de navegación (valores en minúsculas con guion bajo según el enum del backend)
         menu_items = [
@@ -121,17 +99,32 @@ class MainLayout(ft.Row):
         for item in menu_items:
             if user_rol in item["show_to"]:
                 print(f"DEBUG: Agregando menú: {item['label']}")
+                is_active = self.current_view == item["key"]
+                
                 btn = ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon(item["icon"], color=ft.Colors.WHITE, size=24),
-                            ft.Text(item["label"], color=ft.Colors.WHITE, size=14)
+                            ft.Container(
+                                content=ft.Icon(
+                                    item["icon"],
+                                    color=ft.Colors.WHITE if is_active else ft.Colors.WHITE70,
+                                    size=22
+                                ),
+                                width=30
+                            ),
+                            ft.Text(
+                                item["label"],
+                                color=ft.Colors.WHITE if is_active else ft.Colors.WHITE70,
+                                size=14,
+                                weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL
+                            )
                         ],
-                        spacing=15
+                        spacing=12
                     ),
-                    padding=15,
-                    bgcolor=ft.Colors.BLUE_700 if self.current_view == item["key"] else None,
+                    padding=12,
+                    bgcolor=ft.Colors.BLUE_700 if is_active else None,
                     border_radius=8,
+                    border=ft.border.only(left=ft.BorderSide(4, ft.Colors.WHITE if is_active else ft.Colors.TRANSPARENT)),
                     on_click=lambda e, key=item["key"]: self.navigate_to(key),
                     ink=True
                 )
@@ -139,17 +132,22 @@ class MainLayout(ft.Row):
         
         print(f"DEBUG: Total botones de menú creados: {len(menu_buttons)}")
         
-        # Botón de logout
+        # Botón de logout mejorado
         logout_btn = ft.Container(
             content=ft.Row(
                 [
-                    ft.Icon(ft.Icons.LOGOUT, color=ft.Colors.WHITE, size=24),
-                    ft.Text("Cerrar Sesión", color=ft.Colors.WHITE, size=14)
+                    ft.Container(
+                        content=ft.Icon(ft.Icons.LOGOUT, color=ft.Colors.RED_300, size=22),
+                        width=30
+                    ),
+                    ft.Text("Cerrar Sesión", color=ft.Colors.RED_300, size=14, weight=ft.FontWeight.BOLD)
                 ],
-                spacing=15
+                spacing=12
             ),
-            padding=15,
+            padding=12,
+            bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.RED),
             border_radius=8,
+            border=ft.border.all(1, ft.Colors.RED_300),
             on_click=lambda e: self.on_logout(),
             ink=True
         )
@@ -158,7 +156,6 @@ class MainLayout(ft.Row):
         sidebar = ft.Container(
             content=ft.Column(
                 [
-                    user_info,
                     ft.Divider(color=ft.Colors.WHITE24, height=1),
                     ft.Container(
                         content=ft.Column(

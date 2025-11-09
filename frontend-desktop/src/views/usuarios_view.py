@@ -189,11 +189,10 @@ class UsuariosView(ft.Column):
                         ft.DataCell(
                             ft.Icon(
                                 estado_icon,
-                                color=estado_color,
-                                size=20
+                                color=estado_color
                             )
                         ),
-                        ft.DataCell(ft.Text(last_login_text, size=12)),
+                        ft.DataCell(ft.Text(last_login_text)),
                         ft.DataCell(
                             ft.Row(
                                 [
@@ -216,8 +215,7 @@ class UsuariosView(ft.Column):
                                             u
                                         )
                                     ),
-                                ],
-                                spacing=0
+                                ]
                             )
                         ),
                     ]

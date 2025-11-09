@@ -52,6 +52,7 @@ class SociosView(ft.Column):
                 ft.DataColumn(ft.Text("Acciones")),
             ],
             rows=[],
+            expand=True
         )
         
         self.loading = ft.ProgressRing(visible=False)
@@ -768,11 +769,12 @@ class SociosView(ft.Column):
         
         self.page.overlay.append(dialogo)
         dialogo.open = True
-        
-        # Asignar contexto DESPUÉS de agregar el diálogo
-        if 'camara_context' in photo:
-            photo['camara_context']['dialogo_principal'] = dialogo
-        
+        # Si el control de foto tiene contexto de camara, asignar el dialogo principal
+        try:
+            if photo.get('camara_context'):
+                photo['camara_context']['dialogo_principal'] = dialogo
+        except Exception:
+            pass
         self.page.update()
     
     def show_socio_details(self, socio: dict):

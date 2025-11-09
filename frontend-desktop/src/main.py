@@ -19,15 +19,23 @@ class App:
         
         # Configuración de la página
         self.page.title = "Sistema de Gestión de Socios"
-        self.page.window.width = 1280
-        self.page.window.height = 800
-        self.page.window.min_width = 1024
+        self.page.window.width = 1366
+        self.page.window.height = 768
+        self.page.window.min_width = 1366
         self.page.window.min_height = 768
+        self.page.window.max_width = 1366
+        self.page.window.max_height = 768
+        self.page.window.resizable = False
         self.page.padding = 0
         self.page.theme_mode = ft.ThemeMode.LIGHT
         
         # Tema personalizado
         self.page.theme = ft.Theme(
+            color_scheme_seed=ft.Colors.BLUE,
+        )
+        
+        # Dark theme
+        self.page.dark_theme = ft.Theme(
             color_scheme_seed=ft.Colors.BLUE,
         )
         
@@ -53,13 +61,59 @@ class App:
         """Mostrar layout principal con sidebar"""
         self.page.clean()
         
-        # Configurar AppBar con notificaciones
+        # Configurar AppBar moderna con notificaciones y tema
         notification_badge = self.notification_manager.create_notification_badge()
+        theme_button = ft.IconButton(
+            icon=ft.Icons.DARK_MODE,
+            tooltip="Cambiar tema",
+            on_click=self.toggle_theme,
+            icon_color=ft.Colors.WHITE
+        )
+        
+        # Usuario info en AppBar
+        user_info_appbar = ft.Container(
+            content=ft.Row(
+            [
+                ft.Icon(ft.Icons.ACCOUNT_CIRCLE, size=32, color=ft.Colors.WHITE),
+                ft.Column(
+                    [
+                        ft.Text(
+                            self.current_user.get("username", "Usuario"),
+                            size=13,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.WHITE
+                        ),
+                        ft.Text(
+                            self.current_user.get("rol", "").replace("_", " ").title(),
+                            size=10,
+                            color=ft.Colors.WHITE70
+                        ),
+                    ],
+                    spacing=0,
+                    alignment=ft.MainAxisAlignment.CENTER
+                )
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER
+            ),
+            margin=ft.margin.only(right=10)
+        )
+        
+        # Obtener nombre de la organización desde config del backend
+        org_name = self.current_user.get("org_name", "Mi Organización")
+        
         self.page.appbar = ft.AppBar(
-            title=ft.Text("Sistema de Gestión de Socios"),
+            title=ft.Text(org_name, size=20, weight=ft.FontWeight.BOLD),
             center_title=False,
-            bgcolor=ft.Colors.BLUE,
-            actions=[notification_badge]
+            bgcolor=ft.Colors.BLUE_800,
+            leading=None,
+            actions=[
+                user_info_appbar,
+                ft.Container(width=1, height=40, bgcolor=ft.Colors.WHITE24),
+                theme_button,
+                ft.Container(notification_badge, margin=ft.Margin(0, 0, 24, 0))
+            ],
+            toolbar_height=64
         )
         
         main_layout = MainLayout(
@@ -76,6 +130,25 @@ class App:
         
         # Iniciar sistema de notificaciones en background
         self.page.run_task(self.start_notifications)
+    
+    def toggle_theme(self, e=None):
+        """Cambiar entre tema claro y oscuro"""
+        self.page.theme_mode = (
+            ft.ThemeMode.DARK 
+            if self.page.theme_mode == ft.ThemeMode.LIGHT 
+            else ft.ThemeMode.LIGHT
+        )
+        
+        # Actualizar icono del botón
+        if self.page.appbar and len(self.page.appbar.actions) > 2:
+            theme_button = self.page.appbar.actions[2]  # índice 2: user_info, separator, theme_button
+            theme_button.icon = (
+                ft.Icons.LIGHT_MODE 
+                if self.page.theme_mode == ft.ThemeMode.DARK 
+                else ft.Icons.DARK_MODE
+            )
+        
+        self.page.update()
     
     def on_logout(self):
         """Callback cuando usuario cierra sesión"""
